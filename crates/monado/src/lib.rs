@@ -8,6 +8,11 @@
 //! runtime a socket/loader will hand us, pack versions, and map results
 //! to errors worth logging.
 
+// This crate is the designated safe boundary over `monado-sys`: unsafe appears
+// here by design, and every use carries a SAFETY comment (enforced
+// workspace-wide by `clippy::undocumented_unsafe_blocks = deny`).
+#![allow(unsafe_code)]
+
 use std::path::PathBuf;
 
 use monado_sys::XrResult;
@@ -75,6 +80,8 @@ pub struct Instance {
 // loader serializes internally.
 #[cfg(feature = "link")]
 unsafe impl Send for Instance {}
+// SAFETY: same guarantee as `Send`: the loader serializes OpenXR calls, so
+// sharing an instance across threads is sound.
 #[cfg(feature = "link")]
 unsafe impl Sync for Instance {}
 

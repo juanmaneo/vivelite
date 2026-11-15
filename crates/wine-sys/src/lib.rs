@@ -85,6 +85,8 @@ mod tests {
     fn cstr_handles_null_valid_and_invalid_utf8() {
         let valid = std::ffi::CString::new("wine-10.0").unwrap();
         let invalid = std::ffi::CString::new(vec![0xff]).unwrap();
+        // SAFETY: `cstr` accepts any raw pointer; null maps to "" and invalid
+        // UTF-8 is lossily replaced.
         unsafe {
             assert_eq!(cstr(std::ptr::null()), "");
             assert_eq!(cstr(valid.as_ptr()), "wine-10.0");

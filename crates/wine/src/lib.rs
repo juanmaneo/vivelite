@@ -5,6 +5,11 @@
 //! `wine64` front-ends do, so the FEX ARM64EC hooks inside this libwine are
 //! the ones doing x86 translation.
 
+// This crate is the designated safe boundary over `wine-sys`: unsafe appears
+// here by design, and every use carries a SAFETY comment (enforced
+// workspace-wide by `clippy::undocumented_unsafe_blocks = deny`).
+#![allow(unsafe_code)]
+
 #[cfg(feature = "link")]
 use std::ffi::{CStr, CString};
 use std::path::{Path, PathBuf};
