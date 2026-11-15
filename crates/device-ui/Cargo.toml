@@ -8,6 +8,9 @@ repository.workspace = true
 
 [dependencies]
 iced = { version = "0.13", default-features = false, features = ["wgpu", "tiny-skia", "tokio"] }
+# Pure-data mapping of OpenXR session events onto the overlay's phase; the
+# `link` feature stays off here so the UI never needs a runtime to build.
+monado = { package = "vivelite-monado", path = "../monado", version = "0.1.1" }
 
 [dev-dependencies]
 tempfile = "3"

@@ -4,9 +4,11 @@
 //! WinlatorXR-derived APK composites this overlay into the OpenXR
 //! swapchain. The UI itself is a plain iced program ([`model`] + [`view`])
 //! that runs today in a desktop preview window and later against the
-//! compositor's swapchain images once the Monado wrapper grows
-//! session/swapchain APIs.
+//! compositor's swapchain images once the render path lands — the Monado
+//! wrapper's session/swapchain APIs exist, and [`compositor`] maps their
+//! events onto the overlay's phase.
 
+pub mod compositor;
 pub mod model;
 pub mod view;
 

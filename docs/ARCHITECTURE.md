@@ -77,5 +77,5 @@ run" layer; the trust model is identical.
 2. ✅ vivelite workspace: bundle pipeline + -sys/wrapper crates + xtask
 3. ⬜ Stage a real Steam Frame image; pin component list to its layout
 4. ⬜ Wine/FEX smoke test inside proot on-device
-5. ⬜ iced overlay frontend on the OpenXR compositor
+5. ⬜ iced overlay frontend on the OpenXR compositor (the `monado` wrapper's session/swapchain APIs and the overlay's compositor phase model are in place; the wgpu-into-swapchain render path is next)
 6. ⬜ CI (GitHub Actions): cargo test --workspace + xtask doctor

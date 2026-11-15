@@ -1,12 +1,15 @@
-//! Safe wrapper around the OpenXR loader for runtime probing.
+//! Safe wrapper around the OpenXR loader for runtime probing and the
+//! overlay's compositor path.
 //!
 //! vivelite's stance on tracking: the headset's vendor runtime (HTC VIVE
 //! OpenXR) owns display and controller tracking — the safe layer for that
 //! is the patched WinlatorXR APK. Monado is the runtime vivelite talks to
 //! from inside the Linux side (proot) for SteamVR-class compositing
-//! experiments. This crate therefore does three things: detect which
-//! runtime a socket/loader will hand us, pack versions, and map results
-//! to errors worth logging.
+//! experiments. This crate therefore does four things: detect which
+//! runtime a socket/loader will hand us, pack versions, map results to
+//! errors worth logging, and (behind the `link` feature, for the device-ui
+//! overlay) own the OpenXR session path — session, reference space,
+//! swapchain, frame loop, and quad-layer composition — see [`session`].
 
 // This crate is the designated safe boundary over `monado-sys`: unsafe appears
 // here by design, and every use carries a SAFETY comment (enforced
@@ -20,23 +23,29 @@ use monado_sys::XrVersion;
 #[cfg(feature = "link")]
 use monado_sys::{
     XrInstance, XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY, XR_TYPE_INSTANCE_CREATE_INFO,
-    XR_TYPE_SYSTEM_GET_INFO,
+    XR_TYPE_SESSION_CREATE_INFO, XR_TYPE_SYSTEM_GET_INFO,
+};
+
+pub mod session;
+
+pub use session::{
+    parse_event, Event, FrameTiming, QuadSpec, ReferenceSpace, SessionState, SwapchainSpec,
+    WaitOutcome,
 };
 
 /// `XR_MAKE_VERSION(major, minor, patch)` per the Khronos header:
-/// major at bit 55, minor at bit 38, patch in the low 38 bits.
-/// Verify against `XR_MAKE_VERSION`/`XR_VERSION_MAJOR` in openxr.h when the
-/// vendored SDK moves.
+/// major at bit 48, minor at bit 32, patch in the low 32 bits.
+/// `XR_VERSION_MAJOR/MINOR/PATCH` are the corresponding shifts.
 pub const fn version_parts(v: XrVersion) -> (u16, u16, u32) {
-    let major = (v >> 55) as u16;
-    let minor = ((v >> 38) & 0x1F_FFFF) as u16;
-    let patch = (v & 0x3F_FFFF_FFFF) as u32;
+    let major = (v >> 48) as u16;
+    let minor = ((v >> 32) & 0xFFFF) as u16;
+    let patch = (v & 0xFFFF_FFFF) as u32;
     (major, minor, patch)
 }
 
 /// `XR_MAKE_VERSION`.
 pub const fn make_version(major: u16, minor: u16, patch: u32) -> XrVersion {
-    ((major as u64) << 55) | ((minor as u64) << 38) | (patch as u64)
+    ((major as u64) << 48) | ((minor as u64) << 32) | (patch as u64)
 }
 
 /// Where a Monado-style runtime can be reached.
@@ -129,6 +138,50 @@ impl Instance {
         Ok(sys)
     }
 
+    /// Create a session on `system_id`, rendering with the Vulkan device
+    /// described by `binding` (from ash via `Handle::as_raw()`).
+    ///
+    /// # Errors
+    ///
+    /// `ApiVersionUnsupported`, `InitializationFailed`, `FormFactorUnavailable`,
+    /// `HandleInvalid`, … — see [`XrError`].
+    pub fn create_session(
+        &self,
+        system_id: u64,
+        binding: &session::GraphicsBinding,
+    ) -> Result<session::Session<'_>, XrError> {
+        let graphics = binding.raw();
+        // SAFETY: all-zero is a valid bit pattern for this plain C struct; the
+        // fields the runtime reads are set below.
+        let mut info = unsafe { std::mem::zeroed::<monado_sys::XrSessionCreateInfo>() };
+        info.type_ = XR_TYPE_SESSION_CREATE_INFO;
+        info.system_id = system_id;
+        info.next = &graphics as *const _ as *const std::os::raw::c_void;
+        let mut raw = 0;
+        // SAFETY: `self.raw` is a live instance, `info` and `graphics` are
+        // initialized and outlive the call, and `raw` is a valid out-pointer.
+        let r = unsafe { monado_sys::xrCreateSession(self.raw, &info, &mut raw) };
+        check(r)?;
+        Ok(session::Session::from_raw(raw, self))
+    }
+
+    /// Poll one runtime event. `Ok(Event::None)` when nothing is pending;
+    /// `Ok(Event::SessionStateChanged { .. })` drives the overlay's
+    /// compositor state machine.
+    pub fn poll_event(&self) -> Result<session::Event, XrError> {
+        // SAFETY: all-zero is a valid bit pattern for this plain C struct;
+        // the loader fills in the event that arrived.
+        let mut buffer = unsafe { std::mem::zeroed::<monado_sys::XrEventDataBuffer>() };
+        // SAFETY: `self.raw` is a live instance and `buffer` is valid for the
+        // duration of the call.
+        let r = unsafe { monado_sys::xrPollEvent(self.raw, &mut buffer) };
+        if r == monado_sys::XR_EVENT_UNAVAILABLE {
+            return Ok(session::Event::None);
+        }
+        check(r)?;
+        Ok(session::parse_event(&buffer))
+    }
+
     /// Raw handle, for the raw call sites the safe layer has not wrapped.
     #[cfg(feature = "link")]
     pub fn raw(&self) -> XrInstance {
@@ -147,15 +200,39 @@ impl Drop for Instance {
     }
 }
 
-/// Errors surfaced by the safe layer.
+/// Errors surfaced by the safe layer. Values are the documented
+/// `XrResult` codes from openxr.h; the mapping is asserted in tests.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum XrError {
-    /// `XR_ERROR_RUNTIME_UNAVAILABLE` (value -6): no usable runtime.
-    RuntimeUnavailable,
-    /// `XR_ERROR_FORM_FACTOR_UNAVAILABLE` (-7): no HMD system right now.
-    FormFactorUnavailable,
+    /// `XR_ERROR_RUNTIME_FAILURE` (-2): the runtime broke.
+    RuntimeFailure,
+    /// `XR_ERROR_API_VERSION_UNSUPPORTED` (-4): loader too old for the
+    /// requested API version.
+    ApiVersionUnsupported,
+    /// `XR_ERROR_INITIALIZATION_FAILED` (-6).
+    InitializationFailed,
+    /// `XR_ERROR_HANDLE_INVALID` (-12).
+    HandleInvalid,
     /// `XR_ERROR_INSTANCE_LOST` (-13): the runtime went away.
     InstanceLost,
+    /// `XR_ERROR_SESSION_RUNNING` (-14): `xrBeginSession` on a running
+    /// session.
+    SessionRunning,
+    /// `XR_ERROR_SESSION_NOT_RUNNING` (-16): frame calls outside RUNNING.
+    SessionNotRunning,
+    /// `XR_ERROR_SESSION_LOST` (-17): the session is gone.
+    SessionLost,
+    /// `XR_ERROR_LAYER_INVALID` (-23): a composition layer was malformed.
+    LayerInvalid,
+    /// `XR_ERROR_SWAPCHAIN_FORMAT_UNSUPPORTED` (-26).
+    SwapchainFormatUnsupported,
+    /// `XR_ERROR_SESSION_NOT_READY` (-28): `xrBeginSession` before READY.
+    SessionNotReady,
+    /// `XR_ERROR_SESSION_NOT_STOPPING` (-29): `xrEndSession` before
+    /// STOPPING.
+    SessionNotStopping,
+    /// `XR_ERROR_FORM_FACTOR_UNAVAILABLE` (-35): no HMD system right now.
+    FormFactorUnavailable,
     /// Any other negative result.
     Other(i32),
 }
@@ -164,16 +241,42 @@ impl XrError {
     /// Map a raw `XrResult` (documented values from openxr.h).
     pub fn from_result(r: XrResult) -> XrError {
         match r {
-            -6 => XrError::RuntimeUnavailable,
-            -7 => XrError::FormFactorUnavailable,
+            -2 => XrError::RuntimeFailure,
+            -4 => XrError::ApiVersionUnsupported,
+            -6 => XrError::InitializationFailed,
+            -12 => XrError::HandleInvalid,
             -13 => XrError::InstanceLost,
+            -14 => XrError::SessionRunning,
+            -16 => XrError::SessionNotRunning,
+            -17 => XrError::SessionLost,
+            -23 => XrError::LayerInvalid,
+            -26 => XrError::SwapchainFormatUnsupported,
+            -28 => XrError::SessionNotReady,
+            -29 => XrError::SessionNotStopping,
+            -35 => XrError::FormFactorUnavailable,
             other => XrError::Other(other),
         }
     }
 
-    /// Whether retrying after a fresh `detect_endpoint` could help.
+    /// Whether retrying after a fresh `detect_endpoint` (and a new
+    /// session, if one was lost) could help.
     pub fn is_retryable(&self) -> bool {
-        matches!(self, XrError::RuntimeUnavailable | XrError::InstanceLost)
+        matches!(
+            self,
+            XrError::InstanceLost | XrError::SessionLost | XrError::FormFactorUnavailable
+        )
+    }
+}
+
+/// Turns a raw `XrResult` into `Ok(())` or the mapped error. Positive
+/// results (success-with-info) are success; the callers that branch on a
+/// specific positive code handle it before calling this.
+#[cfg(any(feature = "link", test))]
+pub(crate) fn check(r: XrResult) -> Result<(), XrError> {
+    if r < 0 {
+        Err(XrError::from_result(r))
+    } else {
+        Ok(())
     }
 }
 
@@ -189,22 +292,53 @@ mod tests {
     use super::*;
 
     #[test]
-    fn version_roundtrip() {
+    fn version_packing_matches_xr_make_version() {
+        // XR_MAKE_VERSION(1, 0, 0) = 0x0001_0000_0000_0000 per openxr.h;
+        // XR_VERSION_MAJOR/MINOR/PATCH are shifts of 48/32/0.
         let v = make_version(1, 0, 0);
+        assert_eq!(v, 0x0001_0000_0000_0000);
         assert_eq!(version_parts(v), (1, 0, 0));
         let v = make_version(1, 1, 32);
+        assert_eq!(v, 0x0001_0001_0000_0020);
         assert_eq!(version_parts(v), (1, 1, 32));
+        // The current API version at the time of writing, as a sanity pin.
+        assert_eq!(version_parts(make_version(1, 1, 65)), (1, 1, 65));
     }
 
     #[test]
     fn error_mapping_uses_documented_values() {
-        // Values from the common XrResult enum in openxr.h.
-        assert_eq!(XrError::from_result(-6), XrError::RuntimeUnavailable);
-        assert_eq!(XrError::from_result(-7), XrError::FormFactorUnavailable);
+        // Values from the XrResult enum in openxr.h.
+        assert_eq!(XrError::from_result(-2), XrError::RuntimeFailure);
+        assert_eq!(XrError::from_result(-4), XrError::ApiVersionUnsupported);
+        assert_eq!(XrError::from_result(-6), XrError::InitializationFailed);
+        assert_eq!(XrError::from_result(-12), XrError::HandleInvalid);
         assert_eq!(XrError::from_result(-13), XrError::InstanceLost);
+        assert_eq!(XrError::from_result(-14), XrError::SessionRunning);
+        assert_eq!(XrError::from_result(-16), XrError::SessionNotRunning);
+        assert_eq!(XrError::from_result(-17), XrError::SessionLost);
+        assert_eq!(XrError::from_result(-23), XrError::LayerInvalid);
+        assert_eq!(
+            XrError::from_result(-26),
+            XrError::SwapchainFormatUnsupported
+        );
+        assert_eq!(XrError::from_result(-28), XrError::SessionNotReady);
+        assert_eq!(XrError::from_result(-29), XrError::SessionNotStopping);
+        assert_eq!(XrError::from_result(-35), XrError::FormFactorUnavailable);
         assert_eq!(XrError::from_result(-999), XrError::Other(-999));
-        assert!(XrError::RuntimeUnavailable.is_retryable());
-        assert!(!XrError::FormFactorUnavailable.is_retryable());
+        assert!(XrError::InstanceLost.is_retryable());
+        assert!(XrError::SessionLost.is_retryable());
+        assert!(XrError::FormFactorUnavailable.is_retryable());
+        assert!(!XrError::SessionNotReady.is_retryable());
+    }
+
+    #[test]
+    fn positive_results_are_success_in_check() {
+        assert_eq!(check(0), Ok(()));
+        // XR_TIMEOUT_EXPIRED and XR_EVENT_UNAVAILABLE are handled by their
+        // call sites; check itself treats any positive result as success.
+        assert_eq!(check(1), Ok(()));
+        assert_eq!(check(4), Ok(()));
+        assert_eq!(check(-13), Err(XrError::InstanceLost));
     }
 
     // Env-touching tests are serialized into one test to avoid racing

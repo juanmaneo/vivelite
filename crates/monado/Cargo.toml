@@ -1,6 +1,6 @@
 [package]
 name = "vivelite-monado"
-description = "Safe wrapper around the OpenXR loader for Monado on-device probes"
+description = "Safe wrapper around the OpenXR loader: runtime probes and the overlay's session/swapchain path"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

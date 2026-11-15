@@ -6,6 +6,8 @@
 
 use std::path::PathBuf;
 
+use crate::compositor::Phase;
+
 /// What the overlay is showing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Page {
@@ -45,6 +47,8 @@ pub struct Overlay {
     pub stage: StageStatus,
     /// Doctor checklist lines.
     pub checks: Vec<Check>,
+    /// Compositor attach phase (desktop preview until a session exists).
+    pub phase: Phase,
     /// Last transient message (errors, hints).
     pub notice: String,
 }
@@ -69,6 +73,9 @@ pub enum Message {
     StageFailed(String),
     /// Tick from the runtime's frame loop (refresh doctor data).
     Tick,
+    /// The compositor session moved to a new [`Phase`]; the runner maps
+    /// OpenXR events with `crate::compositor::Phase::on_event` first.
+    Compositor(Phase),
 }
 
 impl Overlay {
@@ -82,6 +89,7 @@ impl Overlay {
                 bytes: None,
             },
             checks: Vec::new(),
+            phase: Phase::Detached,
             notice: "Waiting for staging status…".into(),
         }
     }
@@ -125,6 +133,13 @@ impl Overlay {
                 true
             }
             Message::Tick => false,
+            Message::Compositor(phase) => {
+                if self.phase == phase {
+                    return false;
+                }
+                self.phase = phase;
+                true
+            }
         }
     }
 }
@@ -220,5 +235,16 @@ mod tests {
     fn tick_is_a_no_op() {
         let mut overlay = Overlay::new();
         assert!(!overlay.update(Message::Tick));
+    }
+
+    #[test]
+    fn compositor_messages_move_the_phase_and_ignore_repeats() {
+        let mut overlay = Overlay::new();
+        assert_eq!(overlay.phase, Phase::Detached);
+        assert!(overlay.update(Message::Compositor(Phase::Connecting)));
+        assert_eq!(overlay.phase, Phase::Connecting);
+        assert!(!overlay.update(Message::Compositor(Phase::Connecting)));
+        assert!(overlay.update(Message::Compositor(Phase::Rendering)));
+        assert_eq!(overlay.phase, Phase::Rendering);
     }
 }

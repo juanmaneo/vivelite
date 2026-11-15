@@ -59,6 +59,7 @@ fn staging_page(overlay: &Overlay) -> Element<'_, Message> {
         text("vivelite — staging").size(28),
         text(summary),
         progress_bar(0.0..=100.0, progress),
+        text(overlay.phase.label()),
         text(overlay.notice.clone()),
         button(text("Readiness checks").size(20)).on_press(Message::Select(Page::Doctor)),
     ]
