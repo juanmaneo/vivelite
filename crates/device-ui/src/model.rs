@@ -201,7 +201,7 @@ mod tests {
         assert_eq!(overlay.checks.len(), 1);
         assert!(!overlay.update(Message::Checks(vec![check("curl", true)])));
         assert!(overlay.update(Message::Checks(vec![check("curl", false)])));
-        assert_eq!(overlay.checks[0].ok, false);
+        assert!(!overlay.checks[0].ok);
     }
 
     #[test]

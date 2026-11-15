@@ -28,14 +28,26 @@ pub mod ui;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Cmd {
     /// Download the bundle to the work directory.
-    Fetch { url: String },
+    Fetch {
+        /// The RAUC bundle URL to download.
+        url: String,
+    },
     /// Verify the downloaded bundle (sha256 + signature).
-    Verify { sha256: Option<String> },
+    Verify {
+        /// Overrides the manifest's sha256 when set.
+        sha256: Option<String>,
+    },
     /// Extract SteamOS components from a slot image.
-    Extract { image: PathBuf },
+    Extract {
+        /// Path to the .ext4 slot image to extract.
+        image: PathBuf,
+    },
     /// Full pipeline: atomupd meta → signed bundle → manifest → desync
     /// reconstruct → stage components. This is the real SteamOS staging.
-    Stage { branch: String },
+    Stage {
+        /// The atomupd branch to fetch the signed bundle from.
+        branch: String,
+    },
     /// Report host capability and component drift.
     Doctor,
     /// Open the egui host dashboard.
@@ -240,7 +252,7 @@ pub fn stage_with(files: &dyn fs::Fs, work: &Path, meta: &str) -> Result<String,
     );
 
     // 2. download the signed bundle.
-    let bundles = fs::child(&work, "bundles");
+    let bundles = fs::child(work, "bundles");
     fs::ensure_dir(files, &bundles)?;
     let bundle_path = fs::child(&bundles, cand.bundle_filename());
     if !files.exists(&bundle_path) {
@@ -300,14 +312,14 @@ pub fn stage_with(files: &dyn fs::Fs, work: &Path, meta: &str) -> Result<String,
     );
 
     // 5. reconstruct the rootfs image from Valve's chunk stores.
-    let chunk_cache = fs::child(&fs::child(&work, "cache"), "desync");
+    let chunk_cache = fs::child(&fs::child(work, "cache"), "desync");
     fs::ensure_dir(files, &chunk_cache)?;
     let reconstructor = bundle::DesyncReconstructor {
         stores: cand.chunk_stores(),
         cache: Some(chunk_cache),
         ..Default::default()
     };
-    let rootfs_img = fs::child(&work, format!("rootfs-{}.img", cand.buildid));
+    let rootfs_img = fs::child(work, format!("rootfs-{}.img", cand.buildid));
     if !files.exists(&rootfs_img) {
         let info = reconstructor.info(&caibx).map_err(|e| e.to_string())?;
         eprintln!(

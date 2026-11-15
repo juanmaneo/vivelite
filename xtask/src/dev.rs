@@ -9,7 +9,9 @@ use std::process::Command;
 /// One gate in the dev-check.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Step {
+    /// Human-readable name shown by the dev-check as `==> <label>`.
     pub label: &'static str,
+    /// Argument vector handed to cargo for this gate.
     pub args: Vec<&'static str>,
 }
 

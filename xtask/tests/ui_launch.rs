@@ -41,6 +41,15 @@ fn drain_until_idle(h: &mut Harness<'static, Dashboard>) {
 }
 
 #[test]
+fn default_dashboard_uses_production_defaults() {
+    let dashboard = Dashboard::default();
+    assert_eq!(
+        dashboard.output,
+        "Review host readiness, then run a workflow."
+    );
+}
+
+#[test]
 fn dashboard_renders_and_reports_closed_status() {
     let mut h = harness(work_dir(), ok_runner());
     h.run_steps(2);

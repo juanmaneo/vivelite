@@ -1,3 +1,5 @@
+//! Build script: links `libopenxr_loader` when the `link` feature is on.
+
 fn main() {
     let linking = std::env::var("CARGO_FEATURE_LINK").is_ok();
     if linking {

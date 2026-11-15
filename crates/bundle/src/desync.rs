@@ -70,12 +70,13 @@ impl DesyncReconstructor {
     /// positional arguments last (desync's cobra CLI expects flags before
     /// positionals, like steamac passes them).
     fn args(&self, positional: &[std::ffi::OsString]) -> Vec<std::ffi::OsString> {
-        let mut args: Vec<std::ffi::OsString> = Vec::new();
-        args.push("--concurrency".into());
-        args.push(self.concurrency.to_string().into());
-        args.push("--error-retry".into());
-        args.push("10".into());
-        args.push("--cache-repair=true".into());
+        let mut args: Vec<std::ffi::OsString> = vec![
+            "--concurrency".into(),
+            self.concurrency.to_string().into(),
+            "--error-retry".into(),
+            "10".into(),
+            "--cache-repair=true".into(),
+        ];
         if let Some(cache) = &self.cache {
             args.push("--cache".into());
             args.push(cache.as_os_str().into());

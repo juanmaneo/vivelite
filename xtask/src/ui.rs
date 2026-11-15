@@ -41,6 +41,12 @@ pub struct Dashboard {
     runner: TaskRunner,
 }
 
+impl Default for Dashboard {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Dashboard {
     /// Builds the production dashboard, reading settings from the process env.
     pub fn new() -> Self {

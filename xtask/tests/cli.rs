@@ -1,3 +1,5 @@
+//! Integration tests for the `vivelite-xtask` binary: argument parsing,
+//! subcommand dispatch, and error reporting.
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Output};

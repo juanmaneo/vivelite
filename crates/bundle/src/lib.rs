@@ -32,11 +32,19 @@ pub enum Error {
     /// Manifest syntax is invalid.
     BadManifest(String),
     /// A checksum did not match.
-    ChecksumMismatch { expected: String, actual: String },
+    ChecksumMismatch {
+        /// The checksum the manifest asked for.
+        expected: String,
+        /// The checksum the file actually has.
+        actual: String,
+    },
     /// An external tool failed (openssl, unsquashfs, rauc).
     Tool {
+        /// The binary that failed.
         tool: &'static str,
+        /// Its exit status.
         status: std::process::ExitStatus,
+        /// Its collected stderr.
         stderr: String,
     },
     /// Anything else, with context.

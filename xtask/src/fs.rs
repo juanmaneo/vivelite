@@ -9,9 +9,13 @@ use std::path::{Path, PathBuf};
 
 /// The filesystem operations the pipeline needs.
 pub trait Fs {
+    /// `std::fs::create_dir_all`, injectable for tests.
     fn create_dir_all(&self, path: &Path) -> std::io::Result<()>;
+    /// File size via metadata, injectable for tests.
     fn metadata_len(&self, path: &Path) -> std::io::Result<u64>;
+    /// Whole-file read, injectable for tests.
     fn read_to_string(&self, path: &Path) -> std::io::Result<String>;
+    /// Existence probe, injectable for tests.
     fn exists(&self, path: &Path) -> bool;
 }
 
