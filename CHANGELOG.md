@@ -14,11 +14,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `LICENSE-MIT` and `LICENSE-APACHE` license texts (dual-licensed `MIT OR Apache-2.0`).
 - `CHANGELOG.md`.
-
-## [0.1.1]
-
-### Added
-
 - Workspace with `xtask` build orchestrator and `vivelite-core` stage/layout model.
 - `bundle` crate: fetch (streamed, resumable), sha256 + CMS signature verification (rauc), and SteamOS component extraction.
 - `wine-sys` / `wine`: prefix management, embedded loader init, and version probe.
