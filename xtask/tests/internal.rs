@@ -111,7 +111,14 @@ fn parse_empty_is_help() {
 
 #[test]
 fn parse_device_ui_command() {
-    assert_eq!(parse(&["device-ui".into()]).unwrap(), Cmd::DeviceUi);
+    assert_eq!(
+        parse(&["device-ui".into()]).unwrap(),
+        Cmd::DeviceUi { xr: false }
+    );
+    assert_eq!(
+        parse(&["device-ui".into(), "--xr".into()]).unwrap(),
+        Cmd::DeviceUi { xr: true }
+    );
 }
 
 #[test]
@@ -132,6 +139,18 @@ fn device_ui_arm_reports_overlay_closed() {
     assert_eq!(closed.unwrap(), "overlay closed");
     let err = run_with(&["device-ui".into()], &ok, &fail, "cargo");
     assert_eq!(err.unwrap_err(), "no display");
+}
+
+/// The device-ui --xr arm maps the runner's exit codes; `true` stands in
+/// for a runner that exits 0, `false` for one that exits 1.
+#[test]
+fn device_ui_xr_arm_reports_the_runner_outcome() {
+    let ok = || Ok(());
+    let msg = run_with(&["device-ui".into(), "--xr".into()], &ok, &ok, "true").unwrap();
+    assert!(msg.contains("session lost"), "{msg}");
+
+    let err = run_with(&["device-ui".into(), "--xr".into()], &ok, &ok, "false").unwrap_err();
+    assert!(err.contains("OpenXR runtime"), "{err}");
 }
 
 /// A parse failure inside `run_with` surfaces as the parse error itself.

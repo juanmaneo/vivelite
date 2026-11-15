@@ -26,6 +26,7 @@ pub mod fs;
 pub mod gfr_probe;
 pub mod gpu;
 pub mod ui;
+pub mod xr;
 
 /// Parsed command line. Hand-rolled so the parsing is unit-testable with no
 /// CLI framework on the Android side.
@@ -68,8 +69,12 @@ pub enum Cmd {
     },
     /// Open the egui host dashboard.
     Ui,
-    /// Preview the iced device overlay in a desktop window.
-    DeviceUi,
+    /// Preview the iced device overlay in a desktop window; with `xr`,
+    /// run it against the OpenXR compositor instead (opt-in).
+    DeviceUi {
+        /// Render into the compositor's swapchain via the `xr` feature.
+        xr: bool,
+    },
     /// Local dev-check: build, test, and enforce 100% coverage.
     Dev,
     /// Print help.
@@ -134,7 +139,9 @@ pub fn parse(args: &[String]) -> Result<Cmd, String> {
             Ok(Cmd::GfrProbe { backend })
         }
         "ui" => Ok(Cmd::Ui),
-        "device-ui" => Ok(Cmd::DeviceUi),
+        "device-ui" => Ok(Cmd::DeviceUi {
+            xr: rest.iter().any(|arg| arg == "--xr"),
+        }),
         "dev" => Ok(Cmd::Dev),
         "help" | "--help" | "-h" => Ok(Cmd::Help),
         other => Err(format!("unknown command: {other}")),
@@ -202,10 +209,11 @@ pub fn run_with(
             launch_ui()?;
             Ok("dashboard closed".into())
         }
-        Cmd::DeviceUi => {
+        Cmd::DeviceUi { xr: false } => {
             launch_overlay()?;
             Ok("overlay closed".into())
         }
+        Cmd::DeviceUi { xr: true } => xr::run(cargo_bin),
         Cmd::GpuStress { case, timeout_secs } => gpu::run(cargo_bin, &case, timeout_secs),
         Cmd::GfrProbe { backend } => gfr_probe::run(cargo_bin, backend),
         Cmd::Fetch { url } => {
@@ -525,6 +533,6 @@ fn usage() -> &'static str {
      cargo xtask gpu-stress <case> [--timeout <secs>]\n\
      cargo xtask gfr-probe [--backend auto|amd|portable]\n\
      cargo xtask ui                   open the egui host dashboard\n\
-     cargo xtask device-ui            preview the iced device overlay\n\
+     cargo xtask device-ui [--xr]     preview the iced overlay; --xr runs it on the compositor\n\
      cargo xtask dev                  build, test, and enforce 100% coverage\n"
 }
