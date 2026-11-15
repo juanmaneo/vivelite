@@ -204,16 +204,15 @@ fn run_with(args: &[String], launch_ui: &dyn Fn() -> Result<(), String>) -> Resu
 /// 20261022.6150929, SteamOS 0.4.5): the `.raucb` is a ~2 MiB signed
 /// squashfs; the rootfs bytes come from casync chunk stores.
 fn stage(branch: &str) -> Result<String, String> {
-    stage_with(&fs::RealFs, branch)
+    let meta = fetch_text(&bundle::meta_url(branch))?;
+    stage_with(&fs::RealFs, &work_root(), &meta)
 }
 
-fn stage_with(files: &dyn fs::Fs, branch: &str) -> Result<String, String> {
-    let work = work_root();
-
+/// The staging pipeline after the feed is fetched. Takes the work root and
+/// feed text as inputs so tests can run it without network or environment.
+fn stage_with(files: &dyn fs::Fs, work: &Path, meta: &str) -> Result<String, String> {
     // 1. atomupd metadata: latest candidate for the branch.
-    let meta_url = bundle::meta_url(branch);
-    let meta = fetch_text(&meta_url)?;
-    let cand = bundle::parse_candidates(&meta)
+    let cand = bundle::parse_candidates(meta)
         .map_err(|e| e.to_string())?
         .pop()
         .ok_or("no candidates in the feed")?;
@@ -518,5 +517,63 @@ mod tests {
     fn run_curl_reports_spawn_failure() {
         let err = run_curl("/nonexistent/vivelite-curl", &[]).unwrap_err();
         assert!(err.contains("could not run curl"), "{err}");
+    }
+
+    /// Wraps a real filesystem and fails one chosen operation, so each
+    /// `Fs` error branch of the stage pipeline can be reached in a test.
+    struct FailingFs {
+        fail: &'static str,
+    }
+
+    impl fs::Fs for FailingFs {
+        fn create_dir_all(&self, path: &Path) -> std::io::Result<()> {
+            if self.fail == "create_dir_all" {
+                return Err(std::io::Error::other("injected mkdir failure"));
+            }
+            fs::RealFs.create_dir_all(path)
+        }
+        fn metadata_len(&self, path: &Path) -> std::io::Result<u64> {
+            fs::RealFs.metadata_len(path)
+        }
+        fn read_to_string(&self, path: &Path) -> std::io::Result<String> {
+            if self.fail == "read_to_string" {
+                return Err(std::io::Error::other("injected read failure"));
+            }
+            fs::RealFs.read_to_string(path)
+        }
+        fn exists(&self, path: &Path) -> bool {
+            fs::RealFs.exists(path)
+        }
+    }
+
+    #[test]
+    fn stage_pipeline_surfaces_injected_faults() {
+        const FEED: &str = r#"{"candidates":[{"buildid":"b1","version":"0.4.5","update_path":"vr/b1/deckard.raucb","chunks_store_path":"vr/chunks.castr"}]}"#;
+        let work = tempfile::tempdir().unwrap();
+        // Fails the first directory the pipeline creates: the bundles dir.
+        let err = stage_with(
+            &FailingFs {
+                fail: "create_dir_all",
+            },
+            work.path(),
+            FEED,
+        )
+        .unwrap_err();
+        assert!(err.contains("injected mkdir failure"), "{err}");
+    }
+
+    #[test]
+    fn filesystem_faults_are_reported_with_context() {
+        let dir = tempfile::tempdir().unwrap();
+        let blocked = FailingFs {
+            fail: "create_dir_all",
+        };
+        let err = fs::ensure_dir(&blocked, &dir.path().join("bundles")).unwrap_err();
+        assert!(err.contains("injected mkdir failure"), "{err}");
+        let reader = FailingFs {
+            fail: "read_to_string",
+        };
+        let err = fs::read_text(&reader, &dir.path().join("manifest.raucm")).unwrap_err();
+        assert!(err.contains("injected read failure"), "{err}");
     }
 }
