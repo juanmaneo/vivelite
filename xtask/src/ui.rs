@@ -92,14 +92,14 @@ impl Dashboard {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| runner(&args)))
                 .unwrap_or_else(|_| Err("task stopped unexpectedly".into()));
             let message = match result {
-                Ok(message) => format!("✓ {message}"),
-                Err(error) => format!("✗ {error}"),
+                Ok(message) => format!("OK: {message}"),
+                Err(error) => format!("ERROR: {error}"),
             };
             let _ = tx.send(message);
         });
     }
 
-    fn draw(&mut self, ctx: &egui::Context) {
+    fn logic(&mut self, ctx: &egui::Context) {
         while let Ok(message) = self.task_rx.try_recv() {
             self.output = message;
             self.busy = false;
@@ -111,8 +111,10 @@ impl Dashboard {
         if self.busy {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
+    }
 
-        egui::TopBottomPanel::top("header").show(ctx, |ui| {
+    fn draw(&mut self, ui: &mut egui::Ui) {
+        egui::Panel::top("header").show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.heading("vivelite");
                 ui.label("Host dashboard");
@@ -124,7 +126,7 @@ impl Dashboard {
             });
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.add_space(8.0);
             ui.heading("System readiness");
             ui.label(format!("Workspace: {}", self.work.display()));
@@ -138,7 +140,9 @@ impl Dashboard {
                         } else {
                             egui::Color32::from_rgb(235, 100, 100)
                         };
-                        ui.colored_label(color, "●");
+                        let (rect, _) =
+                            ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
+                        ui.painter().circle_filled(rect.center(), 5.0, color);
                         ui.label(message);
                     });
                 }
@@ -148,8 +152,9 @@ impl Dashboard {
             ui.heading("Setup workflows");
             ui.add_space(6.0);
             ui.horizontal(|ui| {
-                ui.label("Branch");
-                ui.text_edit_singleline(&mut self.branch);
+                let label = ui.label("Branch");
+                ui.text_edit_singleline(&mut self.branch)
+                    .labelled_by(label.id);
                 if ui
                     .add_enabled(!self.busy, egui::Button::new("Stage SteamOS"))
                     .clicked()
@@ -163,8 +168,9 @@ impl Dashboard {
                 }
             });
             ui.horizontal(|ui| {
-                ui.label("Bundle URL");
-                ui.text_edit_singleline(&mut self.bundle_url);
+                let label = ui.label("Bundle URL");
+                ui.text_edit_singleline(&mut self.bundle_url)
+                    .labelled_by(label.id);
                 if ui
                     .add_enabled(
                         !self.busy && !self.bundle_url.trim().is_empty(),
@@ -208,8 +214,12 @@ pub fn run_cli_task(args: &[String]) -> Result<String, String> {
 }
 
 impl eframe::App for Dashboard {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.draw(ctx);
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        Dashboard::logic(self, ctx);
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.draw(ui);
     }
 }
 

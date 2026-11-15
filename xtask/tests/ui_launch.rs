@@ -60,7 +60,7 @@ fn dashboard_renders_and_reports_closed_status() {
     h.get_by_label("Doctor").click();
     h.run_steps(1);
     drain_until_idle(&mut h);
-    assert!(h.state().output.starts_with("✓"), "{}", h.state().output);
+    assert!(h.state().output.starts_with("OK: "), "{}", h.state().output);
 }
 
 #[test]
@@ -108,7 +108,7 @@ fn busy_dashboard_blocks_new_tasks_and_reports_errors() {
 
     release_tx.send(()).expect("runner alive");
     drain_until_idle(&mut h);
-    assert_eq!(h.state().output, "✗ boom: stage stable");
+    assert_eq!(h.state().output, "ERROR: boom: stage stable");
 }
 
 #[test]
@@ -141,7 +141,7 @@ fn workflow_buttons_run_their_commands() {
             vec!["doctor".to_string()],
         ]
     );
-    assert_eq!(h.state().output, "✓ done");
+    assert_eq!(h.state().output, "OK: done");
 }
 
 #[test]
@@ -151,7 +151,7 @@ fn panicking_runner_is_reported_as_an_error() {
     h.get_by_label("Doctor").click();
     h.run_steps(1);
     drain_until_idle(&mut h);
-    assert_eq!(h.state().output, "✗ task stopped unexpectedly");
+    assert_eq!(h.state().output, "ERROR: task stopped unexpectedly");
 }
 
 #[test]
