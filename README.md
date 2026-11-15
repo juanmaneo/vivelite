@@ -1,5 +1,9 @@
 # vivelite
 
+> [!WARNING]
+> **Work in progress.** Nothing here is stable yet: APIs, layout, and
+> behavior can change at any time.
+
 Valve's official **ARM64 SteamOS** (the Steam Frame build) on the
 **HTC VIVE XR Elite** — Rust-first, inspired by
 [steamac](https://github.com/fxgl/steamac).
