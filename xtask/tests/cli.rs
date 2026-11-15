@@ -200,6 +200,13 @@ fn help_unknown_and_argument_errors() {
     assert_eq!(missing_extract.status.code(), Some(2));
     assert!(stderr(&missing_extract).contains("extract needs"));
     assert!(f.run(&["verify"]).status.success());
+    let no_url = f
+        .command(&["fetch"])
+        .env_remove("VIVELITE_BUNDLE_URL")
+        .output()
+        .unwrap();
+    assert_eq!(no_url.status.code(), Some(2));
+    assert!(stderr(&no_url).contains("fetch needs"));
 }
 
 #[test]
