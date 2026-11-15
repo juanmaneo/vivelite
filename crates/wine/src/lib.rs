@@ -5,6 +5,7 @@
 //! `wine64` front-ends do, so the FEX ARM64EC hooks inside this libwine are
 //! the ones doing x86 translation.
 
+#[cfg(feature = "link")]
 use std::ffi::{CStr, CString};
 use std::path::{Path, PathBuf};
 

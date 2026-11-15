@@ -10,9 +10,12 @@
 
 use std::path::PathBuf;
 
+use monado_sys::XrResult;
+use monado_sys::XrVersion;
+#[cfg(feature = "link")]
 use monado_sys::{
-    XrInstance, XrResult, XrVersion, XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY,
-    XR_TYPE_INSTANCE_CREATE_INFO, XR_TYPE_SYSTEM_GET_INFO,
+    XrInstance, XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY, XR_TYPE_INSTANCE_CREATE_INFO,
+    XR_TYPE_SYSTEM_GET_INFO,
 };
 
 /// `XR_MAKE_VERSION(major, minor, patch)` per the Khronos header:
@@ -62,16 +65,20 @@ pub fn detect_endpoint() -> RuntimeEndpoint {
 }
 
 /// A live OpenXR instance, destroyed on drop.
+#[cfg(feature = "link")]
 #[derive(Debug)]
 pub struct Instance {
     raw: XrInstance,
 }
 
-// Safety: an XrInstance is thread-safe per the OpenXR spec (calls may run
-// from any thread; the loader serializes internally).
+// SAFETY: per the OpenXR spec an XrInstance may be used from any thread; the
+// loader serializes internally.
+#[cfg(feature = "link")]
 unsafe impl Send for Instance {}
+#[cfg(feature = "link")]
 unsafe impl Sync for Instance {}
 
+#[cfg(feature = "link")]
 impl Instance {
     /// Create an instance named `app_name` against the active runtime.
     ///
@@ -79,8 +86,9 @@ impl Instance {
     ///
     /// Requires the OpenXR loader to be loadable in this process
     /// (`libopenxr_loader.so` on the library path) and a running runtime.
-    #[cfg(feature = "link")]
     pub unsafe fn create(app_name: &str) -> Result<Instance, XrError> {
+        // SAFETY: all-zero is a valid bit pattern for this plain C struct; the
+        // fields the loader reads are set below.
         let mut info = std::mem::zeroed::<monado_sys::XrInstanceCreateInfo>();
         info.type_ = XR_TYPE_INSTANCE_CREATE_INFO;
         info.application_info.application_version = 1;
@@ -88,6 +96,8 @@ impl Instance {
         write_padded(&mut info.application_info.application_name, app_name);
         write_padded(&mut info.application_info.engine_name, "vivelite");
         let mut raw = 0;
+        // SAFETY: `info` is initialized and `raw` is a valid out-pointer; the
+        // caller guarantees the loader is available.
         let r = monado_sys::xrCreateInstance(&info, &mut raw);
         if r < 0 {
             return Err(XrError::from_result(r));
@@ -96,12 +106,15 @@ impl Instance {
     }
 
     /// Ask for a HMD system id.
-    #[cfg(feature = "link")]
     pub fn system(&self) -> Result<u64, XrError> {
-        let mut get = std::mem::zeroed::<monado_sys::XrSystemGetInfo>();
+        // SAFETY: all-zero is a valid bit pattern for this plain C struct; the
+        // fields the loader reads are set below.
+        let mut get = unsafe { std::mem::zeroed::<monado_sys::XrSystemGetInfo>() };
         get.type_ = XR_TYPE_SYSTEM_GET_INFO;
         get.form_factor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
         let mut sys = 0;
+        // SAFETY: `self.raw` is a live instance from `create`; `get` and `sys`
+        // are valid for the duration of the call.
         let r = unsafe { monado_sys::xrGetSystem(self.raw, &get, &mut sys) };
         if r < 0 {
             return Err(XrError::from_result(r));
@@ -110,6 +123,7 @@ impl Instance {
     }
 
     /// Raw handle, for the raw call sites the safe layer has not wrapped.
+    #[cfg(feature = "link")]
     pub fn raw(&self) -> XrInstance {
         self.raw
     }
@@ -118,6 +132,8 @@ impl Instance {
 #[cfg(feature = "link")]
 impl Drop for Instance {
     fn drop(&mut self) {
+        // SAFETY: `self.raw` came from a successful `xrCreateInstance` and is
+        // destroyed exactly once, here.
         unsafe {
             monado_sys::xrDestroyInstance(self.raw);
         }
@@ -154,6 +170,7 @@ impl XrError {
     }
 }
 
+#[cfg(feature = "link")]
 fn write_padded(dst: &mut [std::os::raw::c_char], s: &str) {
     for (i, b) in s.bytes().take(dst.len().saturating_sub(1)).enumerate() {
         dst[i] = b as std::os::raw::c_char;
@@ -222,12 +239,14 @@ mod tests {
         std::env::remove_var("XR_RUNTIME_JSON");
     }
 
+    #[cfg(feature = "link")]
     #[test]
     fn raw_returns_the_instance_handle() {
         let instance = Instance { raw: 42 };
         assert_eq!(instance.raw(), 42);
     }
 
+    #[cfg(feature = "link")]
     #[test]
     fn write_padded_copies_and_truncates() {
         let mut dst = [0 as std::os::raw::c_char; 5];
