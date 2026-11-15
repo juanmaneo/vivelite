@@ -213,4 +213,283 @@ mod tests {
         dests.dedup();
         assert!(dests.len() >= 2, "expected multiple destination roots");
     }
+
+    /// Write an executable stand-in for a C tool. Appends its argv to `log`
+    /// so tests can assert how the crate drives the real tool.
+    fn fake_tool(dir: &Path, name: &str, log: &Path, body: &str) -> PathBuf {
+        let path = dir.join(name);
+        std::fs::write(
+            &path,
+            format!("#!/bin/sh\necho \"$@\" >> '{}'\n{body}", log.display()),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        path
+    }
+
+    fn tool_error_message(err: crate::Error) -> String {
+        err.to_string()
+    }
+
+    #[test]
+    fn squashfs_extractor_extracts_and_groups() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("squashfs.log");
+        let unsq = fake_tool(
+            dir.path(),
+            "fake-unsquashfs",
+            &log,
+            r#"
+dest=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -d) dest="$2"; shift 2 ;;
+        -*) shift ;;
+        *) break ;;
+    esac
+done
+image="$1"; shift
+for p in "$@"; do
+    mkdir -p "$(dirname "$dest/$p")"
+    echo "payload of $p" > "$dest/$p"
+done
+"#,
+        );
+        let out_a = dir.path().join("out-a");
+        let out_b = dir.path().join("out-b");
+        let comps = vec![
+            Component {
+                inner_path: "/usr/bin/steam".into(),
+                dest: out_a.clone(),
+            },
+            Component {
+                inner_path: "/usr/bin/gamescope".into(),
+                dest: out_a.clone(),
+            },
+            Component {
+                inner_path: "/usr/share/fex".into(),
+                dest: out_b.clone(),
+            },
+        ];
+        let extractor = SquashfsExtractor {
+            unsquashfs_bin: Some(unsq.to_string_lossy().into_owned()),
+            extra_args: vec!["-n".into()],
+        };
+        extractor
+            .extract(dir.path().join("bundle.raucb").as_path(), &comps)
+            .unwrap();
+        // Same destination grouped into one call, distinct ones separate.
+        let calls = std::fs::read_to_string(&log).unwrap();
+        assert_eq!(
+            calls.matches("-d").count(),
+            2,
+            "one call per destination: {calls}"
+        );
+        assert!(
+            calls.contains("/usr/bin/steam /usr/bin/gamescope"),
+            "{calls}"
+        );
+        assert!(calls.contains("-n"), "extra args forwarded: {calls}");
+        assert!(calls.contains("bundle.raucb"), "image passed: {calls}");
+        assert_eq!(
+            std::fs::read_to_string(out_a.join("usr/bin/steam")).unwrap(),
+            "payload of /usr/bin/steam\n"
+        );
+        assert!(out_b.join("usr/share/fex").exists());
+    }
+
+    #[test]
+    fn squashfs_extractor_tool_failure_is_reported() {
+        let dir = tempfile::tempdir().unwrap();
+        let unsq = fake_tool(
+            dir.path(),
+            "fake-unsquashfs",
+            &dir.path().join("unused.log"),
+            "echo boom >&2; exit 3",
+        );
+        let extractor = SquashfsExtractor {
+            unsquashfs_bin: Some(unsq.to_string_lossy().into_owned()),
+            extra_args: Vec::new(),
+        };
+        let err = extractor
+            .extract(
+                dir.path().join("b.raucb").as_path(),
+                &[Component {
+                    inner_path: "/usr/bin/steam".into(),
+                    dest: dir.path().join("out"),
+                }],
+            )
+            .unwrap_err();
+        let msg = tool_error_message(err);
+        assert!(msg.contains("unsquashfs failed"), "{msg}");
+        assert!(msg.contains("boom"), "{msg}");
+    }
+
+    #[test]
+    fn squashfs_extractor_missing_binary_is_reported() {
+        let extractor = SquashfsExtractor {
+            unsquashfs_bin: Some("/nonexistent/unsquashfs".into()),
+            extra_args: Vec::new(),
+        };
+        let err = extractor
+            .extract(
+                Path::new("/dev/null"),
+                &[Component {
+                    inner_path: "/usr/bin/steam".into(),
+                    dest: std::env::temp_dir().join("vivelite-missing-bin-dest"),
+                }],
+            )
+            .unwrap_err();
+        let msg = tool_error_message(err);
+        assert!(msg.contains("could not run unsquashfs"), "{msg}");
+    }
+
+    #[test]
+    fn ext4_extractor_dumps_directories_and_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("debugfs.log");
+        let debugfs = fake_tool(
+            dir.path(),
+            "fake-debugfs",
+            &log,
+            r#"
+req=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -R) req="$2"; shift 2 ;;
+        -*) shift ;;
+        *) shift ;;
+    esac
+done
+case "$req" in
+    stat\ *)
+        inner=${req#stat }
+        case "$inner" in
+            usr/lib/wine|usr/lib/pressure-vessel) echo " Mode: 040755 Type: directory" ;;
+            *) echo " Mode: 0100755 Type: regular file" ;;
+        esac
+        ;;
+    rdump\ *)
+        inner=$(echo "$req" | cut -d' ' -f2)
+        dest=$(echo "$req" | cut -d' ' -f3)
+        mkdir -p "$dest/$inner/sub"
+        echo inner > "$dest/$inner/sub/libwine.so"
+        ;;
+    dump\ *)
+        inner=$(echo "$req" | cut -d' ' -f2)
+        dest=$(echo "$req" | cut -d' ' -f3)
+        echo binary > "$dest"
+        ;;
+    *) echo "unexpected request: $req" >&2; exit 1 ;;
+esac
+"#,
+        );
+        let out = dir.path().join("staged");
+        let comps = vec![
+            Component {
+                inner_path: "/usr/lib/wine".into(),
+                dest: out.clone(),
+            },
+            Component {
+                inner_path: "/usr/bin/steam".into(),
+                dest: out.clone(),
+            },
+        ];
+        let extractor = Ext4Extractor {
+            debugfs_bin: Some(debugfs.to_string_lossy().into_owned()),
+            extra_args: vec!["-f".into(), "fake".into()],
+        };
+        extractor
+            .extract(dir.path().join("rootfs.img").as_path(), &comps)
+            .unwrap();
+        let calls = std::fs::read_to_string(&log).unwrap();
+        assert!(calls.contains("stat usr/lib/wine"), "{calls}");
+        assert!(calls.contains("rdump usr/lib/wine"), "{calls}");
+        assert!(calls.contains("dump usr/bin/steam"), "{calls}");
+        assert!(
+            out.join("usr/lib/wine/sub/libwine.so").exists(),
+            "rdump copies the tree"
+        );
+        assert_eq!(
+            std::fs::read_to_string(out.join("steam")).unwrap(),
+            "binary\n"
+        );
+    }
+
+    #[test]
+    fn ext4_extractor_reports_tool_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let debugfs = fake_tool(
+            dir.path(),
+            "fake-debugfs",
+            &dir.path().join("unused.log"),
+            "echo kaboom >&2; exit 1",
+        );
+        let extractor = Ext4Extractor {
+            debugfs_bin: Some(debugfs.to_string_lossy().into_owned()),
+            extra_args: Vec::new(),
+        };
+        let err = extractor
+            .extract(
+                Path::new("rootfs.img"),
+                &[Component {
+                    inner_path: "/usr/lib/wine".into(),
+                    dest: dir.path().join("out"),
+                }],
+            )
+            .unwrap_err();
+        let msg = tool_error_message(err);
+        assert!(msg.contains("debugfs failed"), "{msg}");
+        assert!(msg.contains("kaboom"), "{msg}");
+    }
+
+    #[test]
+    fn ext4_extractor_treats_missing_inode_as_error() {
+        let dir = tempfile::tempdir().unwrap();
+        // debugfs exits 0 but prints the sentinel on stdout (no stderr).
+        let debugfs = fake_tool(
+            dir.path(),
+            "fake-debugfs",
+            &dir.path().join("unused.log"),
+            "echo 'File not found by ext2_lookup'; echo ' Mode: 0100644 regular'",
+        );
+        let extractor = Ext4Extractor {
+            debugfs_bin: Some(debugfs.to_string_lossy().into_owned()),
+            extra_args: Vec::new(),
+        };
+        let err = extractor
+            .extract(
+                Path::new("rootfs.img"),
+                &[Component {
+                    inner_path: "/gone".into(),
+                    dest: dir.path().join("out"),
+                }],
+            )
+            .unwrap_err();
+        let msg = tool_error_message(err);
+        assert!(msg.contains("File not found by ext2_lookup"), "{msg}");
+    }
+
+    #[test]
+    fn ext4_extractor_missing_binary_is_reported() {
+        let extractor = Ext4Extractor {
+            debugfs_bin: Some("/nonexistent/debugfs".into()),
+            extra_args: Vec::new(),
+        };
+        let err = extractor
+            .extract(
+                Path::new("rootfs.img"),
+                &[Component {
+                    inner_path: "/usr/lib/wine".into(),
+                    dest: std::env::temp_dir().join("vivelite-missing-debugfs-dest"),
+                }],
+            )
+            .unwrap_err();
+        let msg = tool_error_message(err);
+        assert!(msg.contains("could not run debugfs"), "{msg}");
+    }
 }
