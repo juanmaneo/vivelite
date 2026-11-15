@@ -225,10 +225,11 @@ mod tests {
     #[test]
     fn io_failures_are_reported_not_panicked() {
         let dir = tempfile::tempdir().unwrap();
+        let mut progress = |_: u64, _: Instant| -> std::io::Result<()> { Ok(()) };
         // A directory where the destination file should be cannot be opened.
         let as_dir = dir.path().join("is-a-dir");
         std::fs::create_dir(&as_dir).unwrap();
-        assert!(append_to(&as_dir, &mut std::io::Cursor::new(b"x"), &mut |_, _| Ok(())).is_err());
+        assert!(append_to(&as_dir, &mut std::io::Cursor::new(b"x"), &mut progress).is_err());
         assert!(
             fetch_to_quiet(&as_dir, |_| Ok(Box::new(std::io::Cursor::new(
                 b"x".to_vec()
@@ -236,6 +237,11 @@ mod tests {
             .is_err()
         );
         assert!(reset_partial(&as_dir).is_err());
+
+        // The same progress callback also runs on the success path.
+        let ok_path = dir.path().join("progress.bin");
+        let n = append_to(&ok_path, &mut std::io::Cursor::new(b"x"), &mut progress).unwrap();
+        assert_eq!(n, 1);
 
         // A reader that fails mid-stream surfaces the error.
         let path = dir.path().join("broken.bin");
