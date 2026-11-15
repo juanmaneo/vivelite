@@ -58,6 +58,14 @@ face. Unsafe blocks outside `-sys` crates are banned by workspace lints
 - [ ] Device UI (iced): overlay compositor frontend
 - [ ] SteamOS component staging against a real Steam Frame image
 
+## Ideas
+
+- [ ] Probe the XR Elite GPU for `VK_AMD_buffer_marker` (`vulkaninfo | grep buffer_marker`); GFR needs it
+- [ ] `cargo xtask gpu-stress <case>`: opt-in, outside `dev` and the coverage gate, with timeout and watchdog
+- [ ] Port Halt and Catch Fire hang cases to Rust with `ash` (start with `hang_infinite_loop`, `hang_host_event`) as GPU robustness workloads
+- [ ] Run Graphics Flight Recorder (GFR) unmodified as an implicit Vulkan layer to detect hangs during those workloads
+- [ ] Evaluate FidelityFX CAS from PorQue4K as a reference for a future upscaling path
+
 ## License
 
 MIT OR Apache-2.0, same as the Rust ecosystem default.
