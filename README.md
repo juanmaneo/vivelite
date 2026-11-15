@@ -42,6 +42,7 @@ cargo xtask verify           # sha256 + CMS signature (rauc)
 cargo xtask extract <image>  # stage SteamOS components
 cargo xtask doctor
 cargo xtask ui              # optional egui host dashboard
+cargo xtask device-ui       # preview the iced device overlay
 cargo test --workspace
 cargo xtask dev             # build, test, enforce 100% coverage
 ```
@@ -55,8 +56,8 @@ face. Unsafe blocks outside `-sys` crates are banned by workspace lints
 ## Status
 
 - [ ] Local dev-check (`cargo xtask dev`): build, test, 100% function/line/region coverage
-- [ ] Device UI (iced): overlay compositor frontend
-- [ ] SteamOS component staging against a real Steam Frame image
+- [ ] Device UI (iced): overlay compositor frontend. Preview window builds and is tested headlessly (`cargo xtask device-ui`); OpenXR swapchain attachment is pending
+- [ ] SteamOS component staging against a real Steam Frame image. Layout validation and manifest writing are tested with fixtures; a real-image run is pending
 
 ## Ideas
 
