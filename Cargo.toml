@@ -20,11 +20,13 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/juanmaneo/vivelite"
 
 [workspace.lints.rust]
-unsafe_code = "warn"
+# Every warning in a workspace crate is an error; a warning must be either
+# fixed or explicitly allowed with a written reason at the offending site.
+warnings = "deny"
 missing_docs = "warn"
 
 [workspace.lints.clippy]
-all = { level = "warn", priority = -1 }
+all = { level = "deny", priority = -1 }
 undocumented_unsafe_blocks = "deny"
 
 [profile.release]
