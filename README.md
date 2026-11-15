@@ -55,7 +55,7 @@ face. Unsafe blocks outside `-sys` crates are banned by workspace lints
 
 ## Status
 
-- [ ] Local dev-check (`cargo xtask dev`): build, test, 100% function/line/region coverage
+- [x] Local dev-check (`cargo xtask dev`): build, test, 100% function/line/region coverage — verified locally; the display-dependent tests run in child processes with display variables removed, so headless environments exercise the same paths (very bare CI images without wgpu/software rendering for kittest may differ)
 - [ ] Device UI (iced): overlay compositor frontend. Preview window builds and is tested headlessly (`cargo xtask device-ui`); OpenXR swapchain attachment is pending
 - [ ] SteamOS component staging against a real Steam Frame image. Layout validation and manifest writing are tested with fixtures; a real-image run is pending
 
