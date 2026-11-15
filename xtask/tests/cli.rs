@@ -425,6 +425,15 @@ fn dev_command_uses_configured_cargo_and_ui_fails_fast_without_display() {
         .unwrap();
     assert_eq!(ui.status.code(), Some(2));
     assert!(stderr(&ui).contains("could not launch dashboard"));
+
+    let overlay = f
+        .command(&["device-ui"])
+        .env("DISPLAY", ":vivelite-test-no-display")
+        .env_remove("WAYLAND_DISPLAY")
+        .output()
+        .unwrap();
+    assert_eq!(overlay.status.code(), Some(2));
+    assert!(stderr(&overlay).contains("could not launch device overlay"));
 }
 
 #[test]

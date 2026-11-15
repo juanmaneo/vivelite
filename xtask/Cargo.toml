@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 bundle = { path = "../crates/bundle" }
 eframe = { version = "0.31", default-features = false, features = ["default_fonts", "glow", "x11"] }
+device-ui = { path = "../crates/device-ui" }
 vivelite-core = { path = "../crates/vivelite-core" }
 
 [dev-dependencies]

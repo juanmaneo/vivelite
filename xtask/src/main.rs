@@ -54,6 +54,8 @@ pub enum Cmd {
     Doctor,
     /// Open the egui host dashboard.
     Ui,
+    /// Preview the iced device overlay in a desktop window.
+    DeviceUi,
     /// Local dev-check: build, test, and enforce 100% coverage.
     Dev,
     /// Print help.
@@ -96,6 +98,7 @@ pub fn parse(args: &[String]) -> Result<Cmd, String> {
         }
         "doctor" => Ok(Cmd::Doctor),
         "ui" => Ok(Cmd::Ui),
+        "device-ui" => Ok(Cmd::DeviceUi),
         "dev" => Ok(Cmd::Dev),
         "help" | "--help" | "-h" => Ok(Cmd::Help),
         other => Err(format!("unknown command: {other}")),
@@ -110,7 +113,7 @@ fn flag_value(args: &[String], flag: &str) -> Option<String> {
 }
 
 fn run(args: &[String]) -> Result<String, String> {
-    run_with(args, &launch_dashboard)
+    run_with(args, &launch_dashboard, &launch_device_overlay)
 }
 
 /// Launches the egui dashboard; split out so tests can fake the UI.
@@ -118,14 +121,26 @@ fn launch_dashboard() -> Result<(), String> {
     ui::launch().map_err(|e| format!("could not launch dashboard: {e}"))
 }
 
+fn launch_device_overlay() -> Result<(), String> {
+    device_ui::run().map_err(|e| format!("could not launch device overlay: {e}"))
+}
+
 /// Runs a parsed command. `launch_ui` is injected so the dashboard arm is
 /// testable without a display.
-fn run_with(args: &[String], launch_ui: &dyn Fn() -> Result<(), String>) -> Result<String, String> {
+fn run_with(
+    args: &[String],
+    launch_ui: &dyn Fn() -> Result<(), String>,
+    launch_overlay: &dyn Fn() -> Result<(), String>,
+) -> Result<String, String> {
     match parse(args)? {
         Cmd::Help => Ok(usage().to_string()),
         Cmd::Ui => {
             launch_ui()?;
             Ok("dashboard closed".into())
+        }
+        Cmd::DeviceUi => {
+            launch_overlay()?;
+            Ok("overlay closed".into())
         }
         Cmd::Fetch { url } => {
             let dest = work_root().join("bundles").join("steamos.raucb");
@@ -426,6 +441,7 @@ fn usage() -> &'static str {
      cargo xtask extract <slot-image>\n\
      cargo xtask doctor\n\
      cargo xtask ui                   open the egui host dashboard\n\
+     cargo xtask device-ui            preview the iced device overlay\n\
      cargo xtask dev                  build, test, and enforce 100% coverage\n"
 }
 
@@ -511,10 +527,25 @@ mod tests {
     }
 
     #[test]
+    fn parse_device_ui_command() {
+        assert_eq!(parse(&["device-ui".into()]).unwrap(), Cmd::DeviceUi);
+    }
+
+    #[test]
     fn ui_arm_reports_dashboard_closed() {
-        let ok = run_with(&["ui".into()], &|| Ok(()));
+        let ok = run_with(&["ui".into()], &|| Ok(()), &|| Ok(()));
         assert_eq!(ok.unwrap(), "dashboard closed");
-        let err = run_with(&["ui".into()], &|| Err("no display".into()));
+        let err = run_with(&["ui".into()], &|| Err("no display".into()), &|| Ok(()));
+        assert_eq!(err.unwrap_err(), "no display");
+    }
+
+    #[test]
+    fn device_ui_arm_reports_overlay_closed() {
+        let ok = run_with(&["device-ui".into()], &|| Ok(()), &|| Ok(()));
+        assert_eq!(ok.unwrap(), "overlay closed");
+        let err = run_with(&["device-ui".into()], &|| Ok(()), &|| {
+            Err("no display".into())
+        });
         assert_eq!(err.unwrap_err(), "no display");
     }
 
