@@ -60,6 +60,14 @@ pub fn cargo_program() -> String {
     std::env::var("CARGO").unwrap_or_else(|_| "cargo".into())
 }
 
+/// Puts `CARGO` back to `saved`, so a test that changed it leaves no trace.
+fn restore_cargo_env(saved: Option<std::ffi::OsString>) {
+    match saved {
+        Some(value) => std::env::set_var("CARGO", value),
+        None => std::env::remove_var("CARGO"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -105,9 +113,10 @@ mod tests {
         assert_eq!(cargo_program(), "vivelite-test-cargo");
         std::env::remove_var("CARGO");
         assert_eq!(cargo_program(), "cargo");
-        match saved {
-            Some(value) => std::env::set_var("CARGO", value),
-            None => std::env::remove_var("CARGO"),
-        }
+        restore_cargo_env(Some("vivelite-test-cargo".into()));
+        assert_eq!(cargo_program(), "vivelite-test-cargo");
+        restore_cargo_env(None);
+        assert_eq!(cargo_program(), "cargo");
+        restore_cargo_env(saved);
     }
 }

@@ -122,11 +122,17 @@ fn launch_dashboard() -> Result<(), String> {
 }
 
 fn launch_device_overlay() -> Result<(), String> {
-    // iced 0.13 panics instead of returning an error when no display can be
-    // opened, so catch that here and reuse the egui launcher's error path.
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(device_ui::run))
-        .map_err(|_| "could not launch device overlay: no display available".to_string())?
-        .map_err(|e| format!("could not launch device overlay: {e}"))
+    launch_device_overlay_with(device_ui::run)
+}
+
+/// iced 0.13 panics instead of returning an error when no display can be
+/// opened, so the panic is caught here and turned into the same error path.
+fn launch_device_overlay_with(run: fn() -> Result<(), device_ui::Error>) -> Result<(), String> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)) {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(format!("could not launch device overlay: {e}")),
+        Err(_) => Err("could not launch device overlay: no display available".into()),
+    }
 }
 
 /// Runs a parsed command. `launch_ui` is injected so the dashboard arm is
@@ -199,21 +205,22 @@ fn run_with(
         }
         Cmd::Stage { branch } => stage(&branch),
         Cmd::Dev => dev::run(&dev::cargo_program()),
-        Cmd::Doctor => {
-            let layout = device_layout(&work_root());
-            let lines = doctor_checks(&layout);
-            let bad = lines.iter().filter(|(ok, _)| !ok).count();
-            if bad > 0 {
-                for (ok, msg) in &lines {
-                    if !ok {
-                        eprintln!("✗ {msg}");
-                    }
-                }
-                return Err(format!("{bad} check(s) failed"));
-            }
-            Ok("all checks passed".into())
-        }
+        Cmd::Doctor => doctor_report(&doctor_checks(&device_layout(&work_root()))),
     }
+}
+
+/// Prints each failing check and fails if any check failed.
+fn doctor_report(lines: &[(bool, String)]) -> Result<String, String> {
+    let bad = lines.iter().filter(|(ok, _)| !ok).count();
+    if bad > 0 {
+        for (ok, msg) in lines {
+            if !ok {
+                eprintln!("✗ {msg}");
+            }
+        }
+        return Err(format!("{bad} check(s) failed"));
+    }
+    Ok("all checks passed".into())
 }
 
 /// Full SteamOS staging pipeline against the live atomupd feed:
@@ -452,6 +459,7 @@ fn usage() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fs::Fs;
 
     #[test]
     fn parse_stage_defaults_to_stable() {
@@ -557,6 +565,58 @@ mod tests {
     fn run_curl_reports_spawn_failure() {
         let err = run_curl("/nonexistent/vivelite-curl", &[]).unwrap_err();
         assert!(err.contains("could not run curl"), "{err}");
+    }
+
+    #[test]
+    fn failing_fs_delegates_operations_it_does_not_fail() {
+        let files = FailingFs { fail: "other" };
+        let work = tempfile::tempdir().unwrap();
+        let file = work.path().join("present.txt");
+        std::fs::write(&file, "abc").unwrap();
+        assert!(files.exists(&file));
+        assert!(!files.exists(&work.path().join("missing")));
+        assert_eq!(files.metadata_len(&file).unwrap(), 3);
+        assert!(files.metadata_len(&work.path().join("missing")).is_err());
+    }
+
+    #[test]
+    fn device_overlay_launcher_reports_success() {
+        assert!(launch_device_overlay_with(|| Ok(())).is_ok());
+    }
+
+    #[test]
+    fn device_overlay_launcher_reports_window_failure() {
+        let err = launch_device_overlay_with(|| {
+            Err(device_ui::Error::WindowCreationFailed(Box::new(
+                std::io::Error::other("no compositor"),
+            )))
+        })
+        .unwrap_err();
+        assert!(err.contains("could not launch device overlay"), "{err}");
+    }
+
+    #[test]
+    fn device_overlay_launcher_turns_a_panic_into_an_error() {
+        fn panics() -> Result<(), device_ui::Error> {
+            panic!("XOpenDisplayFailed")
+        }
+        let err = launch_device_overlay_with(panics).unwrap_err();
+        assert!(err.contains("no display available"), "{err}");
+    }
+
+    #[test]
+    fn doctor_report_passes_when_every_check_passes() {
+        let lines = vec![(true, "curl available".to_string())];
+        assert_eq!(doctor_report(&lines).unwrap(), "all checks passed");
+    }
+
+    #[test]
+    fn doctor_report_fails_and_counts_bad_checks() {
+        let lines = vec![
+            (true, "curl available".to_string()),
+            (false, "rauc available".to_string()),
+        ];
+        assert_eq!(doctor_report(&lines).unwrap_err(), "1 check(s) failed");
     }
 
     /// Wraps a real filesystem and fails one chosen operation, so each

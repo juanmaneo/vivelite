@@ -357,6 +357,22 @@ mod tests {
     }
 
     #[test]
+    fn new_app_builds_the_dashboard_from_the_creation_context() {
+        let cc = eframe::CreationContext::_new_kittest(egui::Context::default());
+        assert!(new_app(&cc).is_ok());
+    }
+
+    /// Opening a real window needs a display. Hosts without one take the
+    /// error path; hosts with one skip so the test never opens a window.
+    #[test]
+    fn launch_without_a_display_reports_an_error() {
+        if std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some() {
+            return;
+        }
+        assert!(launch().is_err());
+    }
+
+    #[test]
     fn new_dashboard_reads_env_and_cli_runner_still_works() {
         let _dashboard = Dashboard::new();
         let help = run_cli_task(&["help".to_string()]).unwrap();
