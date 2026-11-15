@@ -8,8 +8,9 @@ Valve's official **ARM64 SteamOS** (the Steam Frame build) on the
 **HTC VIVE XR Elite** — Rust-first, inspired by
 [steamac](https://github.com/fxgl/steamac).
 
-The XR Elite exposes no `/dev/kvm` to apps and its bootloader is locked, so
-there is no microVM route and no native SteamOS boot. Instead, vivelite
+The XR Elite exposes no `/dev/kvm` to apps. Its bootloader was not locked in
+earlier firmware, but later versions lock it, so there is no microVM route and
+no native SteamOS boot on current firmware. Instead, vivelite
 reproduces the steamac trust model against a **proot** execution model:
 Valve's signed bundle is downloaded, verified, and its components (Wine with
 the FEX ARM64EC backend, SteamOS libraries) are staged and driven from the
