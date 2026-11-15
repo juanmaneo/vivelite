@@ -12,6 +12,7 @@
 //! cargo xtask extract <image>      # stage SteamOS components
 //! cargo xtask doctor               # check host + drift
 //! cargo xtask gpu-stress <case>    # HCF GPU robustness workload (opt-in)
+//! cargo xtask gfr-probe [--backend auto|amd|portable] # GFR marker probe (opt-in)
 //! ```
 
 use std::ffi::OsString;
@@ -22,6 +23,7 @@ use vivelite_core::device_layout;
 
 pub mod dev;
 pub mod fs;
+pub mod gfr_probe;
 pub mod gpu;
 pub mod ui;
 
@@ -58,6 +60,11 @@ pub enum Cmd {
         case: String,
         /// Watchdog timeout in seconds.
         timeout_secs: u64,
+    },
+    /// Run a GFR marker probe on the selected Vulkan backend (opt-in).
+    GfrProbe {
+        /// Marker backend selection.
+        backend: gfr::BackendRequest,
     },
     /// Open the egui host dashboard.
     Ui,
@@ -116,6 +123,15 @@ pub fn parse(args: &[String]) -> Result<Cmd, String> {
                 None => gpu::DEFAULT_TIMEOUT_SECS,
             };
             Ok(Cmd::GpuStress { case, timeout_secs })
+        }
+        "gfr-probe" => {
+            let backend = match flag_value(rest, "--backend") {
+                Some(value) => value
+                    .parse()
+                    .map_err(|error: gfr::ParseBackendError| error.to_string())?,
+                None => gfr::BackendRequest::Auto,
+            };
+            Ok(Cmd::GfrProbe { backend })
         }
         "ui" => Ok(Cmd::Ui),
         "device-ui" => Ok(Cmd::DeviceUi),
@@ -191,6 +207,7 @@ pub fn run_with(
             Ok("overlay closed".into())
         }
         Cmd::GpuStress { case, timeout_secs } => gpu::run(cargo_bin, &case, timeout_secs),
+        Cmd::GfrProbe { backend } => gfr_probe::run(cargo_bin, backend),
         Cmd::Fetch { url } => {
             let dest = work_root().join("bundles").join("steamos.raucb");
             fs::ensure_dir(&fs::RealFs, dest.parent().unwrap_or(Path::new(".")))?;
@@ -506,6 +523,7 @@ fn usage() -> &'static str {
      cargo xtask extract <slot-image>\n\
      cargo xtask doctor\n\
      cargo xtask gpu-stress <case> [--timeout <secs>]\n\
+     cargo xtask gfr-probe [--backend auto|amd|portable]\n\
      cargo xtask ui                   open the egui host dashboard\n\
      cargo xtask device-ui            preview the iced device overlay\n\
      cargo xtask dev                  build, test, and enforce 100% coverage\n"

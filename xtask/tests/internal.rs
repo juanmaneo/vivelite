@@ -207,6 +207,30 @@ fn gpu_stress_arm_reports_the_runner_outcome() {
     assert!(err.contains("could not run"), "{err}");
 }
 
+/// The gfr-probe arm reports the probe's exit status; `true` stands in for a
+/// successful probe, and a nonexistent program for a spawn failure.
+#[test]
+fn gfr_probe_arm_reports_the_probe_outcome() {
+    let ok = || Ok(());
+    let msg = run_with(
+        &["gfr-probe".into(), "--backend".into(), "portable".into()],
+        &ok,
+        &ok,
+        "true",
+    )
+    .unwrap();
+    assert!(msg.contains("completed"), "{msg}");
+
+    let err = run_with(
+        &["gfr-probe".into()],
+        &ok,
+        &ok,
+        "vivelite-definitely-not-a-program",
+    )
+    .unwrap_err();
+    assert!(err.contains("could not run"), "{err}");
+}
+
 #[test]
 fn which_resolves_only_existing_files_on_path() {
     let dir = tempfile::tempdir().unwrap();

@@ -1,0 +1,25 @@
+[package]
+name = "vivelite-gfr"
+description = "Rust GPU flight recorder with portable Vulkan markers for Adreno"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+ash = { version = "0.38.0", optional = true }
+naga = { version = "30", features = ["glsl-in", "spv-out"], optional = true }
+
+[features]
+vulkan = ["dep:ash", "dep:naga"]
+
+[lib]
+name = "gfr"
+
+[[bin]]
+name = "gfr-probe"
+path = "src/bin/gfr-probe.rs"
+required-features = ["vulkan"]
+
+[lints]
+workspace = true

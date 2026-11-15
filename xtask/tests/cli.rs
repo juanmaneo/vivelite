@@ -201,6 +201,9 @@ fn help_unknown_and_argument_errors() {
     let missing_extract = f.run(&["extract"]);
     assert_eq!(missing_extract.status.code(), Some(2));
     assert!(stderr(&missing_extract).contains("extract needs"));
+    let bad_gfr_backend = f.run(&["gfr-probe", "--backend", "adreno"]);
+    assert_eq!(bad_gfr_backend.status.code(), Some(2));
+    assert!(stderr(&bad_gfr_backend).contains("expected auto, amd, or portable"));
     assert!(f.run(&["verify"]).status.success());
     let no_url = f
         .command(&["fetch"])

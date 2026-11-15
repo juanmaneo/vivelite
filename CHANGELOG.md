@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `cargo xtask gpu-stress <case> [--timeout <secs>]`: opt-in GPU robustness
   workloads, outside `dev` and the coverage gate, with a force-exit
   watchdog (exit code 3 = hang detected, 4 = device lost).
+- `gfr` crate: pure-Rust marker plans and flight analysis, plus opt-in Vulkan
+  AMD-marker and portable compute-marker backends; `cargo xtask gfr-probe`
+  checks marker submission/readback. The portable path is intended for Adreno;
+  real XR Elite hardware validation is pending.
 - `monado-sys`: session-path bindings — `XrSessionCreateInfo` +
   `XrGraphicsBindingVulkanKHR`, reference space, swapchain
   (create/acquire/wait/release/enumerate images), frame loop

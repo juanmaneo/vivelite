@@ -27,6 +27,7 @@ Mesa, curl, squashfs, crypto) which is wrapped behind safe crates:
 | Stage/layout model | Rust | `vivelite-core` |
 | Bundle fetch/verify/extract | Rust (+ C tools wrapped) | `bundle` |
 | GPU robustness (HCF port) | Rust (+ Vulkan wrapped) | `hcf` |
+| GPU flight recorder | Rust (+ Vulkan wrapped) | `gfr` |
 | Wine embedded API | C, wrapped | `wine-sys` → `wine` |
 | FEX in-Wine interfaces | C++, wrapped | `fex-sys` → `fex` |
 | OpenXR loader (Monado) | C, wrapped | `monado-sys` → `monado` |
@@ -46,6 +47,7 @@ cargo xtask doctor
 cargo xtask ui              # optional egui host dashboard
 cargo xtask device-ui       # preview the iced device overlay
 cargo xtask gpu-stress <case>   # opt-in HCF GPU robustness workload
+cargo xtask gfr-probe            # opt-in GFR marker backend probe
 cargo test --workspace
 cargo xtask dev             # build, test, enforce 100% coverage
 ```
@@ -75,9 +77,11 @@ face. Unsafe blocks outside `-sys` crates are banned by workspace lints
 - [ ] Render the iced overlay into OpenXR swapchain images (wgpu/Vulkan
   external-memory import): the session/swapchain wrapper APIs and the
   compositor phase model are in place, the pixel path is the missing piece
-- [ ] Graphics Flight Recorder (GFR) is blocked on the XR Elite: it
-  requires the AMD-only `VK_AMD_buffer_marker`, and the GPU is Qualcomm
-  Adreno
+- [x] Rust GFR primitives and opt-in Vulkan probe (`cargo xtask gfr-probe`):
+  AMD extension backend plus a portable core-Vulkan compute-marker backend
+  intended for Adreno; this is not a transparent Vulkan layer
+- [ ] Verify the portable GFR marker backend on XR Elite/Adreno hardware; so
+  far the probe is only validated on the host GPU
 - [ ] Evaluate FidelityFX CAS from PorQue4K as a reference for a future
   upscaling path
 

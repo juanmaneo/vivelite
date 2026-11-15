@@ -9,7 +9,8 @@ steamac runs Valve's image in a libkrun microVM on Apple Silicon: KVM +
 virtio-gpu/Venus. On the XR Elite:
 
 - No `/dev/kvm` exposed to apps; Android does not hand out the hypervisor.
-- Locked bootloader: no native SteamOS boot, no mainline XR2 display drivers.
+- Later firmware versions lock the bootloader (it was not locked on earlier
+  firmware); current firmware has no native SteamOS boot or mainline XR2 drivers.
 
 So the execution model is the one WinlatorXR already proved on Android:
 **proot + Wine in-process**, with Valve's own ARM64 Wine+FEX build doing the
@@ -31,6 +32,7 @@ run" layer; the trust model is identical.
 └ host build: xtask (fetch/verify/extract/stage/doctor)     │  Rust
    egui desktop tools                                       │  Rust
    hcf: Halt and Catch Fire port, GPU robustness workloads  │  Rust (+ ash)
+   gfr: GPU flight-recorder markers and flight analysis      │  Rust (+ ash)
 ```
 
 ## Trust model
