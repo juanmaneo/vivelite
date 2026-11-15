@@ -94,14 +94,12 @@ impl eframe::App for Dashboard {
             egui::Frame::group(ui.style()).show(ui, |ui| {
                 for (ok, message) in &self.checks {
                     ui.horizontal(|ui| {
-                        ui.colored_label(
-                            if *ok {
-                                egui::Color32::from_rgb(90, 200, 130)
-                            } else {
-                                egui::Color32::from_rgb(235, 100, 100)
-                            },
-                            if *ok { "●" } else { "●" },
-                        );
+                        let color = if *ok {
+                            egui::Color32::from_rgb(90, 200, 130)
+                        } else {
+                            egui::Color32::from_rgb(235, 100, 100)
+                        };
+                        ui.colored_label(color, "●");
                         ui.label(message);
                     });
                 }
