@@ -111,28 +111,39 @@ pub unsafe fn version() -> WineVersion {
 
 /// Initializes the embedded Wine loader.
 ///
-/// `argv` is kept alive for the whole call and beyond (Wine threads retain
-/// pointers into it); the caller passes the program's own argv.
+/// `argv` strings and their null-terminated pointer array are intentionally
+/// retained for the process lifetime because Wine threads may keep pointers
+/// into both allocations.
 ///
 /// # Safety
 ///
 /// Must be called once, before any other Wine call, from a thread that will
-/// stay alive. The returned value is `()` on success; errors are reported by
-/// Wine writing to its debug channel and by subsequent calls failing.
+/// stay alive. A null return from `wine_init` means success; a non-null return
+/// is an error string owned by Wine.
 #[cfg(feature = "link")]
 pub unsafe fn init(argv: &[String]) -> Result<(), String> {
     let mut cargs: Vec<CString> = argv
         .iter()
         .map(|a| CString::new(a.as_str()).map_err(|_| "interior NUL in argv"))
         .collect::<Result<_, _>>()?;
-    cargs.insert(0, CString::new("vivelite").unwrap());
+    cargs.insert(
+        0,
+        CString::new("vivelite").expect("static argv[0] has no NUL"),
+    );
+    let cargs = Box::leak(cargs.into_boxed_slice());
     let mut ptrs: Vec<*mut std::os::raw::c_char> =
         cargs.iter_mut().map(|c| c.as_ptr() as *mut _).collect();
     ptrs.push(std::ptr::null_mut());
     let argc = (ptrs.len() - 1) as std::os::raw::c_int;
-    // wine_init logs failures itself; there is no status return.
-    wine_sys::wine_init(argc, ptrs.as_mut_ptr(), 0, 0);
-    Ok(())
+    let argv = Box::leak(ptrs.into_boxed_slice());
+    let error = wine_sys::wine_init(argc, argv.as_mut_ptr(), 0, 0);
+    if error.is_null() {
+        Ok(())
+    } else {
+        // SAFETY: Wine documents a non-null return as a NUL-terminated error
+        // string valid for the duration of this initialization call.
+        Err(CStr::from_ptr(error).to_string_lossy().into_owned())
+    }
 }
 
 #[cfg(test)]
