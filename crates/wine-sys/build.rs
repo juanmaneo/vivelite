@@ -1,3 +1,5 @@
+//! Build script: links `libwine` via pkg-config when the `link` feature is on.
+
 fn main() {
     // Only link when the `link` feature is requested, so `cargo test` works
     // on machines without Wine development libraries.
@@ -14,9 +16,7 @@ fn main() {
             println!("cargo:rustc-cfg=linked_libwine");
         }
         None => {
-            println!(
-                "cargo:warning=libwine not found via pkg-config; calls will fail at link time"
-            );
+            panic!("libwine was not found via pkg-config, but the `link` feature is enabled");
         }
     }
     println!("cargo:rerun-if-changed=build.rs");
