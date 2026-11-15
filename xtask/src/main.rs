@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use bundle::{Extractor, RootfsReconstructor, SignatureVerifier};
 use vivelite_core::device_layout;
 
+mod dev;
 mod ui;
 
 fn main() {
@@ -52,6 +53,8 @@ pub enum Cmd {
     Doctor,
     /// Open the egui host dashboard.
     Ui,
+    /// Local dev-check: build, test, and enforce 100% coverage.
+    Dev,
     /// Print help.
     Help,
 }
@@ -92,6 +95,7 @@ pub fn parse(args: &[String]) -> Result<Cmd, String> {
         }
         "doctor" => Ok(Cmd::Doctor),
         "ui" => Ok(Cmd::Ui),
+        "dev" => Ok(Cmd::Dev),
         "help" | "--help" | "-h" => Ok(Cmd::Help),
         other => Err(format!("unknown command: {other}")),
     }
@@ -161,6 +165,7 @@ fn run(args: &[String]) -> Result<String, String> {
             ))
         }
         Cmd::Stage { branch } => stage(&branch),
+        Cmd::Dev => dev::run(&dev::cargo_program()),
         Cmd::Doctor => {
             let layout = device_layout(&work_root());
             let lines = doctor_checks(&layout);
@@ -386,7 +391,8 @@ fn usage() -> &'static str {
      cargo xtask verify [--sha256 <hex>]\n\
      cargo xtask extract <slot-image>\n\
      cargo xtask doctor\n\
-     cargo xtask ui                   open the egui host dashboard\n"
+     cargo xtask ui                   open the egui host dashboard\n\
+     cargo xtask dev                  build, test, and enforce 100% coverage\n"
 }
 
 #[cfg(test)]
@@ -458,6 +464,11 @@ mod tests {
     #[test]
     fn parse_ui_command() {
         assert_eq!(parse(&["ui".into()]).unwrap(), Cmd::Ui);
+    }
+
+    #[test]
+    fn parse_dev_command() {
+        assert_eq!(parse(&["dev".into()]).unwrap(), Cmd::Dev);
     }
 
     #[test]
