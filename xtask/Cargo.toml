@@ -9,7 +9,7 @@ license.workspace = true
 bundle = { package = "vivelite-bundle", path = "../crates/bundle", version = "0.1.1" }
 eframe = { version = "0.31", default-features = false, features = ["default_fonts", "glow", "x11"] }
 device-ui = { package = "vivelite-device-ui", path = "../crates/device-ui", version = "0.1.1" }
-vivelite-core = { package = "core", path = "../crates/vivelite-core", version = "0.1.1" }
+vivelite-core = { path = "../crates/core", version = "0.1.1" }
 
 [dev-dependencies]
 egui_kittest = { version = "0.31", default-features = false, features = ["eframe"] }

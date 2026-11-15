@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
     "xtask",
-    "crates/vivelite-core",
+    "crates/core",
     "crates/device-ui",
     "crates/bundle",
     "crates/wine-sys",

@@ -764,13 +764,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "core"
-version = "0.1.1"
-dependencies = [
- "tempfile",
-]
-
-[[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4194,6 +4187,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "vivelite-core"
+version = "0.1.1"
+dependencies = [
+ "tempfile",
+]
+
+[[package]]
 name = "vivelite-device-ui"
 version = "0.1.1"
 dependencies = [
@@ -4238,11 +4238,11 @@ version = "0.1.1"
 name = "vivelite-xtask"
 version = "0.1.1"
 dependencies = [
- "core",
  "eframe",
  "egui_kittest",
  "tempfile",
  "vivelite-bundle",
+ "vivelite-core",
  "vivelite-device-ui",
 ]
 
