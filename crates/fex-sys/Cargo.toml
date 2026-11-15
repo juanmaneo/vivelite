@@ -1,5 +1,5 @@
 [package]
-name = "fex-sys"
+name = "vivelite-fex-sys"
 description = "Raw FFI bindings to FEX-Emu's Wine interfaces (ARM64EC / unixlib)"
 version.workspace = true
 edition.workspace = true
@@ -12,3 +12,6 @@ links = "fex_wine"
 # Link against fex_wine (set FEX_WINE_LIB to its directory). Off by default:
 # layout tests mirror FEX's static_asserts without the library present.
 link = []
+
+[lib]
+name = "fex_sys"

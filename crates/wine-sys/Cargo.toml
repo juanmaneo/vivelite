@@ -1,5 +1,5 @@
 [package]
-name = "wine-sys"
+name = "vivelite-wine-sys"
 description = "Raw FFI bindings to Wine's embedded C API (libwine)"
 version.workspace = true
 edition.workspace = true
@@ -13,3 +13,6 @@ links = "wine"
 # ABI tests run on any machine; enable on a host with Wine dev libraries
 # before calling into the bindings.
 link = []
+
+[lib]
+name = "wine_sys"

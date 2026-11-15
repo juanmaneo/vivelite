@@ -1,15 +1,18 @@
 [package]
-name = "wine"
+name = "vivelite-wine"
 description = "Safe wrapper around Wine's embedded C API for vivelite"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-wine-sys = { path = "../wine-sys" }
+wine-sys = { package = "vivelite-wine-sys", path = "../wine-sys", version = "0.1.1" }
 
 [features]
 # Enable to link against libwine (propagates to wine-sys). Without it, only
 # the pure-Rust parts of this crate (prefix management, path mapping) build
 # and test.
 link = ["wine-sys/link"]
+
+[lib]
+name = "wine"

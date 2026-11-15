@@ -1,5 +1,5 @@
 [package]
-name = "device-ui"
+name = "vivelite-device-ui"
 description = "vivelite on-device overlay UI (iced) for the SteamOS staging status"
 version.workspace = true
 edition.workspace = true
@@ -13,3 +13,6 @@ tempfile = "3"
 
 [lints]
 workspace = true
+
+[lib]
+name = "device_ui"

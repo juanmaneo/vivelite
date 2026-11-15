@@ -1,13 +1,16 @@
 [package]
-name = "monado"
+name = "vivelite-monado"
 description = "Safe wrapper around the OpenXR loader for Monado on-device probes"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-monado-sys = { path = "../monado-sys" }
+monado-sys = { package = "vivelite-monado-sys", path = "../monado-sys", version = "0.1.1" }
 
 [features]
 # Enable to link against the OpenXR loader (propagates to monado-sys).
 link = ["monado-sys/link"]
+
+[lib]
+name = "monado"
