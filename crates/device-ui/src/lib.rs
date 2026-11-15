@@ -25,15 +25,27 @@ pub fn run() -> Result<(), Error> {
 mod tests {
     use crate::model::{Check, Message, Overlay, Page};
 
-    /// Creating a window needs a display. Headless hosts (the owner's CI-less
-    /// box) take the failure path; hosts with a display skip this test so it
-    /// never opens a real window.
+    /// Always run the native launch in a child with display variables removed,
+    /// so this test exercises the failure path without ever opening a real window.
     #[test]
     fn run_without_a_display_fails_instead_of_hanging() {
-        if std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some() {
+        const CHILD: &str = "VIVELITE_DEVICE_UI_HEADLESS_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            let _ = std::panic::catch_unwind(crate::run);
             return;
         }
-        let _ = std::panic::catch_unwind(crate::run);
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "tests::run_without_a_display_fails_instead_of_hanging",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .env_remove("DISPLAY")
+            .env_remove("WAYLAND_DISPLAY")
+            .status()
+            .unwrap();
+        assert!(status.success());
     }
 
     #[test]
