@@ -109,10 +109,21 @@ fn flag_value(args: &[String], flag: &str) -> Option<String> {
 }
 
 fn run(args: &[String]) -> Result<String, String> {
+    run_with(args, &launch_dashboard)
+}
+
+/// Launches the egui dashboard; split out so tests can fake the UI.
+fn launch_dashboard() -> Result<(), String> {
+    ui::launch().map_err(|e| format!("could not launch dashboard: {e}"))
+}
+
+/// Runs a parsed command. `launch_ui` is injected so the dashboard arm is
+/// testable without a display.
+fn run_with(args: &[String], launch_ui: &dyn Fn() -> Result<(), String>) -> Result<String, String> {
     match parse(args)? {
         Cmd::Help => Ok(usage().to_string()),
         Cmd::Ui => {
-            ui::launch().map_err(|e| format!("could not launch dashboard: {e}"))?;
+            launch_ui()?;
             Ok("dashboard closed".into())
         }
         Cmd::Fetch { url } => {
@@ -121,17 +132,19 @@ fn run(args: &[String]) -> Result<String, String> {
             // The download itself runs over HTTPS from the host; here we
             // delegate to curl for transport (C tool, wrapped, per project
             // rule) and verify with the bundle crate afterwards.
-            let status = std::process::Command::new("curl")
-                .arg("--continue-at")
-                .arg("-")
-                .arg("--fail")
-                .arg("--location")
-                .arg("--output")
-                .arg(&dest)
-                .arg(&url)
-                .status()
-                .map_err(|e| format!("could not run curl: {e}"))?;
-            if !status.success() {
+            let out = run_curl(
+                "curl",
+                &[
+                    "--continue-at".into(),
+                    "-".into(),
+                    "--fail".into(),
+                    "--location".into(),
+                    "--output".into(),
+                    dest.display().to_string(),
+                    url.clone(),
+                ],
+            )?;
+            if !out.status.success() {
                 return Err("download failed".into());
             }
             let size = std::fs::metadata(&dest).map_err(|e| e.to_string())?.len();
@@ -312,14 +325,16 @@ fn stage(branch: &str) -> Result<String, String> {
 
 /// Small text fetch via curl (transport stays a wrapped C tool).
 fn fetch_text(url: &str) -> Result<String, String> {
-    let out = std::process::Command::new("curl")
-        .arg("--fail")
-        .arg("--location")
-        .arg("--silent")
-        .arg("--show-error")
-        .arg(url)
-        .output()
-        .map_err(|e| format!("could not run curl: {e}"))?;
+    let out = run_curl(
+        "curl",
+        &[
+            "--fail".into(),
+            "--location".into(),
+            "--silent".into(),
+            "--show-error".into(),
+            url.into(),
+        ],
+    )?;
     if !out.status.success() {
         return Err(format!(
             "could not fetch {url}: {}",
@@ -329,18 +344,29 @@ fn fetch_text(url: &str) -> Result<String, String> {
     String::from_utf8(out.stdout).map_err(|e| format!("non-utf8 response from {url}: {e}"))
 }
 
+/// Spawns curl for transport (C tool, wrapped per the project rule). The
+/// program name is a parameter so tests can exercise the spawn-failure path.
+fn run_curl(program: &str, args: &[String]) -> Result<std::process::Output, String> {
+    std::process::Command::new(program)
+        .args(args)
+        .output()
+        .map_err(|e| format!("could not run curl: {e}"))
+}
+
 fn curl(url: &str, dest: &Path) -> Result<(), String> {
-    let status = std::process::Command::new("curl")
-        .arg("--continue-at")
-        .arg("-")
-        .arg("--fail")
-        .arg("--location")
-        .arg("--output")
-        .arg(dest)
-        .arg(url)
-        .status()
-        .map_err(|e| format!("could not run curl: {e}"))?;
-    if !status.success() {
+    let out = run_curl(
+        "curl",
+        &[
+            "--continue-at".into(),
+            "-".into(),
+            "--fail".into(),
+            "--location".into(),
+            "--output".into(),
+            dest.display().to_string(),
+            url.into(),
+        ],
+    )?;
+    if !out.status.success() {
         return Err(format!("download failed: {url}"));
     }
     Ok(())
@@ -474,5 +500,19 @@ mod tests {
     #[test]
     fn parse_empty_is_help() {
         assert_eq!(parse(&[]).unwrap(), Cmd::Help);
+    }
+
+    #[test]
+    fn ui_arm_reports_dashboard_closed() {
+        let ok = run_with(&["ui".into()], &|| Ok(()));
+        assert_eq!(ok.unwrap(), "dashboard closed");
+        let err = run_with(&["ui".into()], &|| Err("no display".into()));
+        assert_eq!(err.unwrap_err(), "no display");
+    }
+
+    #[test]
+    fn run_curl_reports_spawn_failure() {
+        let err = run_curl("/nonexistent/vivelite-curl", &[]).unwrap_err();
+        assert!(err.contains("could not run curl"), "{err}");
     }
 }

@@ -1,4 +1,14 @@
+//! Host dashboard UI (egui) for the desktop side.
+//!
+//! The window wiring lives in [`launch`]; everything the dashboard draws is
+//! in [`Dashboard::draw`], which is driven headlessly by `egui_kittest` in
+//! the tests below. Workflow commands run on a background thread through an
+//! injectable [`TaskRunner`] so UI tests never touch the network or the
+//! staging tools.
+
+use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -6,6 +16,10 @@ use eframe::egui;
 use vivelite_core::device_layout;
 
 use crate::{doctor_checks, work_root};
+
+/// Runs one dashboard workflow command. Production wires this to the xtask
+/// CLI; tests inject a fake so UI tests stay hermetic.
+type TaskRunner = Arc<dyn Fn(&[String]) -> Result<String, String> + Send + Sync>;
 
 struct Dashboard {
     checks: Vec<(bool, String)>,
@@ -16,27 +30,37 @@ struct Dashboard {
     last_refresh: Instant,
     task_tx: Sender<String>,
     task_rx: Receiver<String>,
+    work: PathBuf,
+    runner: TaskRunner,
 }
 
 impl Dashboard {
     fn new() -> Self {
+        let mut dashboard = Self::with_runner(work_root(), Arc::new(run_cli_task));
+        dashboard.bundle_url = std::env::var("VIVELITE_BUNDLE_URL").unwrap_or_default();
+        dashboard
+    }
+
+    fn with_runner(work: PathBuf, runner: TaskRunner) -> Self {
         let (task_tx, task_rx) = mpsc::channel();
         let mut dashboard = Self {
             checks: Vec::new(),
             output: "Review host readiness, then run a workflow.".into(),
             branch: "stable".into(),
-            bundle_url: std::env::var("VIVELITE_BUNDLE_URL").unwrap_or_default(),
+            bundle_url: String::new(),
             busy: false,
             last_refresh: Instant::now(),
             task_tx,
             task_rx,
+            work,
+            runner,
         };
         dashboard.refresh_checks();
         dashboard
     }
 
     fn refresh_checks(&mut self) {
-        self.checks = doctor_checks(&device_layout(&work_root()));
+        self.checks = doctor_checks(&device_layout(&self.work));
         self.last_refresh = Instant::now();
     }
 
@@ -47,8 +71,9 @@ impl Dashboard {
         self.busy = true;
         self.output = format!("Running {label}…");
         let tx = self.task_tx.clone();
+        let runner = Arc::clone(&self.runner);
         thread::spawn(move || {
-            let result = std::panic::catch_unwind(|| crate::run(&args))
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| runner(&args)))
                 .unwrap_or_else(|_| Err("task stopped unexpectedly".into()));
             let message = match result {
                 Ok(message) => format!("✓ {message}"),
@@ -57,10 +82,8 @@ impl Dashboard {
             let _ = tx.send(message);
         });
     }
-}
 
-impl eframe::App for Dashboard {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn draw(&mut self, ctx: &egui::Context) {
         while let Ok(message) = self.task_rx.try_recv() {
             self.output = message;
             self.busy = false;
@@ -88,7 +111,7 @@ impl eframe::App for Dashboard {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.add_space(8.0);
             ui.heading("System readiness");
-            ui.label(format!("Workspace: {}", work_root().display()));
+            ui.label(format!("Workspace: {}", self.work.display()));
             ui.add_space(8.0);
 
             egui::Frame::group(ui.style()).show(ui, |ui| {
@@ -163,6 +186,17 @@ impl eframe::App for Dashboard {
     }
 }
 
+/// Production task runner: reuse the xtask command implementations.
+fn run_cli_task(args: &[String]) -> Result<String, String> {
+    crate::run(args)
+}
+
+impl eframe::App for Dashboard {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.draw(ctx);
+    }
+}
+
 pub fn launch() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -176,4 +210,144 @@ pub fn launch() -> Result<(), eframe::Error> {
         options,
         Box::new(|_cc| Ok(Box::new(Dashboard::new()))),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui_kittest::kittest::Queryable;
+    use egui_kittest::Harness;
+
+    fn work_dir() -> PathBuf {
+        tempfile::tempdir().unwrap().path().to_path_buf()
+    }
+
+    /// Harness driving the real `eframe::App::update` implementation.
+    fn harness(work: PathBuf, runner: TaskRunner) -> Harness<'static, Dashboard> {
+        Harness::builder()
+            .with_size(egui::vec2(760.0, 620.0))
+            .build_eframe(move |_cc| Dashboard::with_runner(work, runner))
+    }
+
+    fn ok_runner() -> TaskRunner {
+        Arc::new(|args: &[String]| Ok(format!("ok: {}", args.join(" "))))
+    }
+
+    /// Steps until the background task result has been applied.
+    fn drain_until_idle(h: &mut Harness<'static, Dashboard>) {
+        for _ in 0..200 {
+            if !h.state().busy {
+                return;
+            }
+            h.run_steps(1);
+        }
+        panic!("dashboard task never finished");
+    }
+
+    #[test]
+    fn dashboard_renders_and_reports_closed_status() {
+        let mut h = harness(work_dir(), ok_runner());
+        h.run_steps(2);
+        h.get_by_label_contains("System readiness");
+        h.get_by_label_contains("Setup workflows");
+        h.get_by_label_contains("Review host readiness");
+    }
+
+    #[test]
+    fn refresh_button_and_periodic_refresh_reset_checks() {
+        let mut h = harness(work_dir(), ok_runner());
+        h.get_by_label("Refresh checks").click();
+        h.run_steps(2);
+
+        // Both check colors must be exercised deterministically, regardless
+        // of which tools happen to be installed on the build host.
+        h.state_mut().checks = vec![(true, "good check".into()), (false, "bad check".into())];
+        h.run_steps(2);
+
+        // Aging past the refresh interval triggers an automatic refresh.
+        let stale = Instant::now() - Duration::from_secs(30);
+        h.state_mut().last_refresh = stale;
+        h.run_steps(2);
+        assert!(h.state().last_refresh > stale);
+    }
+
+    #[test]
+    fn busy_dashboard_blocks_new_tasks_and_reports_errors() {
+        let (release_tx, release_rx) = mpsc::channel::<()>();
+        let release_rx = std::sync::Mutex::new(release_rx);
+        let runner: TaskRunner = Arc::new(move |args: &[String]| {
+            release_rx.lock().unwrap().recv().expect("release signal");
+            Err(format!("boom: {}", args.join(" ")))
+        });
+        let mut h = harness(work_dir(), runner);
+
+        // A blank branch falls back to "stable".
+        h.state_mut().branch = "  ".into();
+        h.get_by_label("Stage SteamOS").click();
+        h.run_steps(2);
+        assert!(h.state().busy);
+        assert_eq!(h.state().output, "Running stage…");
+
+        // While busy: the refresh click is ignored and other buttons are
+        // disabled, so no second task can start.
+        h.get_by_label("Refresh checks").click();
+        h.state_mut().bundle_url = "https://example.invalid/x.raucb".into();
+        h.get_by_label("Fetch bundle").click();
+        h.run_steps(2);
+        assert_eq!(h.state().output, "Running stage…");
+
+        release_tx.send(()).expect("runner alive");
+        drain_until_idle(&mut h);
+        assert_eq!(h.state().output, "✗ boom: stage stable");
+    }
+
+    #[test]
+    fn workflow_buttons_run_their_commands() {
+        let recorded = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = Arc::clone(&recorded);
+        let runner: TaskRunner = Arc::new(move |args: &[String]| {
+            sink.lock().unwrap().push(args.to_vec());
+            Ok("done".into())
+        });
+        let mut h = harness(work_dir(), runner);
+
+        h.state_mut().branch = "beta".into();
+        h.state_mut().bundle_url = "https://example.invalid/b.raucb".into();
+        for label in ["Stage SteamOS", "Fetch bundle", "Verify bundle", "Doctor"] {
+            h.get_by_label(label).click();
+            h.run_steps(1);
+            drain_until_idle(&mut h);
+        }
+
+        assert_eq!(
+            *recorded.lock().unwrap(),
+            vec![
+                vec!["stage".to_string(), "beta".to_string()],
+                vec![
+                    "fetch".to_string(),
+                    "https://example.invalid/b.raucb".to_string()
+                ],
+                vec!["verify".to_string()],
+                vec!["doctor".to_string()],
+            ]
+        );
+        assert_eq!(h.state().output, "✓ done");
+    }
+
+    #[test]
+    fn busy_flag_blocks_start_task_without_a_thread() {
+        let mut dashboard = Dashboard::with_runner(work_dir(), ok_runner());
+        dashboard.busy = true;
+        let before = dashboard.output.clone();
+        dashboard.start_task("doctor", vec!["doctor".into()]);
+        assert!(dashboard.busy);
+        assert_eq!(dashboard.output, before);
+    }
+
+    #[test]
+    fn new_dashboard_reads_env_and_cli_runner_still_works() {
+        let _dashboard = Dashboard::new();
+        let help = run_cli_task(&["help".to_string()]).unwrap();
+        assert!(help.contains("cargo xtask dev"), "{help}");
+    }
 }

@@ -99,15 +99,14 @@ mod tests {
     }
 
     #[test]
-    fn cargo_program_falls_back_to_cargo() {
+    fn cargo_program_reads_and_restores_cargo_env() {
         let saved = std::env::var_os("CARGO");
+        std::env::set_var("CARGO", "vivelite-test-cargo");
+        assert_eq!(cargo_program(), "vivelite-test-cargo");
         std::env::remove_var("CARGO");
         assert_eq!(cargo_program(), "cargo");
-        std::env::set_var("CARGO", "/opt/cargo");
-        assert_eq!(cargo_program(), "/opt/cargo");
-        match saved {
-            Some(v) => std::env::set_var("CARGO", v),
-            None => std::env::remove_var("CARGO"),
+        if let Some(value) = saved {
+            std::env::set_var("CARGO", value);
         }
     }
 }

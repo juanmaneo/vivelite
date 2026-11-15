@@ -11,4 +11,5 @@ eframe = { version = "0.31", default-features = false, features = ["default_font
 vivelite-core = { path = "../crates/vivelite-core" }
 
 [dev-dependencies]
+egui_kittest = { version = "0.31", default-features = false, features = ["eframe"] }
 tempfile = "3"

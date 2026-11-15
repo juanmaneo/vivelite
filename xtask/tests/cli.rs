@@ -44,6 +44,10 @@ while [ $# -gt 0 ]; do
         *) shift ;;
     esac
 done
+if [ "$FAKE_STAGE_SCENARIO" = bundledl ] && [ -n "$out" ]; then
+    echo 'fake curl failed' >&2
+    exit 7
+fi
 if [ -n "$out" ]; then
     printf 'fake bundle' > "$out"
 else
@@ -196,6 +200,13 @@ fn fetch_verify_extract_and_doctor_paths() {
 
     let verified = f.run(&["verify"]);
     assert!(verified.status.success(), "{}", stderr(&verified));
+    let wrong_sha = "00".repeat(32);
+    let wrong_hash = f
+        .command(&["verify", "--sha256", &wrong_sha])
+        .output()
+        .unwrap();
+    assert_eq!(wrong_hash.status.code(), Some(2));
+    assert!(stderr(&wrong_hash).contains("sha256 mismatch"));
     let extracted = f.run(&["extract", "slot.img"]);
     assert!(extracted.status.success(), "{}", stderr(&extracted));
     assert!(stdout(&extracted).contains("staged 5 components"));
@@ -256,6 +267,9 @@ fn stage_success_and_manifest_failures() {
     assert!(ok.status.success(), "{}\n{}", stdout(&ok), stderr(&ok));
     assert!(stdout(&ok).contains("staged 5 SteamOS components"));
 
+    let no_sha = f.stage("no-sha");
+    assert!(no_sha.status.success(), "{}", stderr(&no_sha));
+
     for (scenario, expected) in [
         ("incompatible", "expected steamos-aarch64"),
         ("no-compatible", "manifest lacks compatible"),
@@ -276,6 +290,42 @@ fn stage_success_and_manifest_failures() {
             stderr(&failed)
         );
     }
+}
+
+#[test]
+fn stage_reports_bundle_download_failure() {
+    let f = Fixture::new();
+    let out = f
+        .command(&["stage", "stable"])
+        .env("FAKE_STAGE_SCENARIO", "bundledl")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("download failed:"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn curl_spawn_failures_are_reported() {
+    let f = Fixture::new();
+    let fetch = f
+        .command(&["fetch", "https://example.invalid/b.raucb"])
+        .env("PATH", "/nonexistent")
+        .output()
+        .unwrap();
+    assert_eq!(fetch.status.code(), Some(2));
+    assert!(stderr(&fetch).contains("could not run curl"));
+
+    let stage = f
+        .command(&["stage", "stable"])
+        .env("PATH", "/nonexistent")
+        .output()
+        .unwrap();
+    assert_eq!(stage.status.code(), Some(2));
+    assert!(stderr(&stage).contains("could not run curl"));
 }
 
 #[test]
