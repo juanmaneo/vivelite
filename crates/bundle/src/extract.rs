@@ -60,13 +60,13 @@ impl Extractor for SquashfsExtractor {
             }
             let out = cmd.output().map_err(|e| Error::Tool {
                 tool: "unsquashfs",
-                status: std::process::ExitStatus::default(),
+                status: None,
                 stderr: format!("could not run unsquashfs: {e}"),
             })?;
             if !out.status.success() {
                 return Err(Error::Tool {
                     tool: "unsquashfs",
-                    status: out.status,
+                    status: Some(out.status),
                     stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
                 });
             }
@@ -106,7 +106,7 @@ impl Ext4Extractor {
         }
         let out = cmd.output().map_err(|e| Error::Tool {
             tool: "debugfs",
-            status: std::process::ExitStatus::default(),
+            status: None,
             stderr: format!("could not run debugfs: {e}"),
         })?;
         let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
@@ -114,7 +114,7 @@ impl Ext4Extractor {
             let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
             return Err(Error::Tool {
                 tool: "debugfs",
-                status: out.status,
+                status: Some(out.status),
                 stderr: if stderr.is_empty() { stdout } else { stderr },
             });
         }
@@ -128,9 +128,28 @@ impl Ext4Extractor {
     }
 }
 
+fn validate_debugfs_path(path: &str) -> Result<()> {
+    let inner = path
+        .strip_prefix('/')
+        .ok_or_else(|| Error::Other(format!("debugfs path must be absolute: {path:?}")))?;
+    if inner.is_empty()
+        || inner
+            .split('/')
+            .any(|part| part.is_empty() || part == "." || part == "..")
+        || inner
+            .chars()
+            .any(|ch| ch.is_whitespace() || ch.is_control())
+        || inner.contains(['"', '\'', '`', ';', '\\'])
+    {
+        return Err(Error::Other(format!("unsafe debugfs path: {path:?}")));
+    }
+    Ok(())
+}
+
 impl Extractor for Ext4Extractor {
     fn extract(&self, image: &Path, components: &[Component]) -> Result<()> {
         for c in components {
+            validate_debugfs_path(&c.inner_path)?;
             std::fs::create_dir_all(&c.dest)?;
             // Paths inside the image are absolute without the leading slash
             // for debugfs requests; strip it.
@@ -439,6 +458,29 @@ esac
             std::fs::read_to_string(out.join("steam")).unwrap(),
             "binary\n"
         );
+    }
+
+    #[test]
+    fn ext4_extractor_rejects_unsafe_debugfs_paths_before_spawning() {
+        let dir = tempfile::tempdir().unwrap();
+        let extractor = Ext4Extractor::default();
+        for path in [
+            "relative/path",
+            "/usr/lib/../etc",
+            "/usr/lib with spaces",
+            "/usr/lib;quit",
+        ] {
+            let err = extractor
+                .extract(
+                    Path::new("rootfs.img"),
+                    &[Component {
+                        inner_path: path.into(),
+                        dest: dir.path().join("out"),
+                    }],
+                )
+                .unwrap_err();
+            assert!(err.to_string().contains("debugfs path"), "{err}");
+        }
     }
 
     #[test]

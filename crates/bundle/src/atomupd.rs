@@ -41,32 +41,52 @@ pub struct Candidate {
 
 impl Candidate {
     /// Absolute URL of the signed `.raucb` bundle.
-    pub fn bundle_url(&self) -> String {
-        format!("{}{}", IMAGES_BASE, self.update_path)
+    pub fn bundle_url(&self) -> Result<String> {
+        validate_feed_path(&self.update_path)?;
+        Ok(format!("{}{}", IMAGES_BASE, self.update_path))
     }
 
     /// The two casync chunk stores holding the rootfs chunks, in the order
     /// steamac passes them to desync: the per-image store first (denser,
     /// contains everything of this build), the shared `chunks.castr` second.
-    pub fn chunk_stores(&self) -> Vec<String> {
+    pub fn chunk_stores(&self) -> Result<Vec<String>> {
+        validate_feed_path(&self.update_path)?;
+        validate_feed_path(&self.chunks_store_path)?;
         let stem = self
             .update_path
             .strip_suffix(".raucb")
             .unwrap_or(&self.update_path);
-        vec![
+        Ok(vec![
             format!("{IMAGES_BASE}{stem}.castr/"),
             format!("{}{}/", IMAGES_BASE, self.chunks_store_path),
-        ]
+        ])
     }
 
     /// File name of the bundle on disk.
-    pub fn bundle_filename(&self) -> String {
-        self.update_path
+    pub fn bundle_filename(&self) -> Result<String> {
+        validate_feed_path(&self.update_path)?;
+        Ok(self
+            .update_path
             .rsplit('/')
             .next()
             .unwrap_or("steamos.raucb")
-            .to_string()
+            .to_string())
     }
+}
+
+fn validate_feed_path(path: &str) -> Result<()> {
+    let invalid = path.is_empty()
+        || path.starts_with('/')
+        || path.contains(['\\', ':', '?', '#', '%'])
+        || path
+            .split('/')
+            .any(|part| part.is_empty() || part == "." || part == "..");
+    if invalid {
+        return Err(Error::Other(format!(
+            "atomupd meta: unsafe relative path {path:?}"
+        )));
+    }
+    Ok(())
 }
 
 /// URL of the metadata document for a branch (`stable`, `beta`, …).
@@ -104,11 +124,15 @@ pub fn parse_candidates(json: &str) -> Result<Vec<Candidate>> {
                 "atomupd meta: candidate {start} lacks buildid/update_path"
             )));
         };
+        let chunks_store_path =
+            get("chunks_store_path").unwrap_or_else(|| "vr/chunks.castr".into());
+        validate_feed_path(&update_path)?;
+        validate_feed_path(&chunks_store_path)?;
         out.push(Candidate {
             buildid,
             version: get("version").unwrap_or_default(),
             update_path,
-            chunks_store_path: get("chunks_store_path").unwrap_or_else(|| "vr/chunks.castr".into()),
+            chunks_store_path,
         });
     }
     if out.is_empty() {
@@ -207,17 +231,53 @@ mod tests {
     }
 
     #[test]
+    fn rejects_unsafe_feed_paths() {
+        for path in [
+            "../outside.raucb",
+            "/absolute.raucb",
+            "vr\\\\evil.raucb",
+            "https://evil/raucb",
+        ] {
+            let json = format!(r#"{{"candidates":[{{"buildid":"1","update_path":"{path}"}}]}}"#);
+            assert!(parse_candidates(&json).is_err(), "accepted {path:?}");
+        }
+        let json = r#"{"candidates":[{"buildid":"1","update_path":"vr/good.raucb","chunks_store_path":"../../evil"}]}"#;
+        assert!(parse_candidates(json).is_err());
+    }
+
+    #[test]
+    fn candidate_helpers_reject_unsafe_paths() {
+        let bad = Candidate {
+            buildid: "1".into(),
+            version: String::new(),
+            update_path: "../evil.raucb".into(),
+            chunks_store_path: "vr/chunks.castr".into(),
+        };
+        assert!(bad.bundle_url().is_err());
+        assert!(bad.bundle_filename().is_err());
+        assert!(bad.chunk_stores().is_err());
+
+        let bad_store = Candidate {
+            buildid: "1".into(),
+            version: String::new(),
+            update_path: "vr/good.raucb".into(),
+            chunks_store_path: "/abs/chunks".into(),
+        };
+        assert!(bad_store.chunk_stores().is_err());
+    }
+
+    #[test]
     fn builds_the_verified_urls() {
         let c = parse_candidates(LIVE).unwrap().remove(0);
         assert_eq!(
-            c.bundle_url(),
+            c.bundle_url().unwrap(),
             "https://steamdeck-images.steamos.cloud/vr/20261022.6150929/deckard-stable-20261022.6150929-0.4.5.raucb"
         );
         assert_eq!(
-            c.bundle_filename(),
+            c.bundle_filename().unwrap(),
             "deckard-stable-20261022.6150929-0.4.5.raucb"
         );
-        let stores = c.chunk_stores();
+        let stores = c.chunk_stores().unwrap();
         assert_eq!(
             stores[0],
             "https://steamdeck-images.steamos.cloud/vr/20261022.6150929/deckard-stable-20261022.6150929-0.4.5.castr/"

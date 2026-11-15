@@ -87,7 +87,10 @@ fn append_stream(
 /// Fetch `url` into `dest` in full, calling `fetch_to`'s transport hook.
 ///
 /// The actual HTTPS client is injected so the download logic stays testable:
-/// `reader` returns a fresh byte source, optionally for a resumed Range.
+/// `reader` returns a fresh byte source, optionally for a resumed Range. When
+/// `resume_from > 0`, the transport must reject a response that does not honor
+/// the requested range (HTTP 206 with a matching Content-Range); this byte
+/// writer cannot validate HTTP metadata itself.
 pub fn fetch_to<F>(dest: &Path, reader: F, on_progress: Progress) -> Result<u64>
 where
     F: FnOnce(u64) -> std::io::Result<Box<dyn Read>>,

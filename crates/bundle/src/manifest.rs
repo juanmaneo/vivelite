@@ -30,6 +30,20 @@ pub struct Manifest {
     pub other: Vec<(String, String, String)>,
 }
 
+fn validate_filename(filename: &str) -> std::result::Result<(), String> {
+    let mut components = std::path::Path::new(filename).components();
+    match (components.next(), components.next()) {
+        (Some(std::path::Component::Normal(_)), None)
+            if !filename.is_empty()
+                && !filename.contains(['/', '\\'])
+                && !filename.chars().any(char::is_control) =>
+        {
+            Ok(())
+        }
+        _ => Err(format!("unsafe image filename {filename:?}")),
+    }
+}
+
 /// Parse a `manifest.raucm` document.
 ///
 /// Grammar accepted (a pragmatic subset of RAUC's):
@@ -74,6 +88,9 @@ pub fn parse_manifest(text: &str) -> Result<Manifest> {
             let slot = slot.to_string();
             match key {
                 "filename" => {
+                    validate_filename(value).map_err(|message| {
+                        Error::BadManifest(format!("line {}: {message}", lineno + 1))
+                    })?;
                     let img = m.images.iter_mut().find(|i| i.slot == slot);
                     match img {
                         Some(i) => i.filename = value.to_string(),
@@ -157,6 +174,17 @@ size=104857600
 
         let boot = m.images.iter().find(|i| i.slot == "boot").unwrap();
         assert_eq!(boot.sha256, None);
+    }
+
+    #[test]
+    fn rejects_unsafe_image_filenames_with_the_line_number() {
+        for filename in ["../evil.img", "a/b.img", "", "bad\x01.img"] {
+            let doc = format!("[image.core]\nfilename={filename}\n");
+            let err = parse_manifest(&doc).unwrap_err();
+            assert!(err.to_string().contains("line 2"), "{err}");
+        }
+        let err = parse_manifest("[image.core]\nfilename=../x.img\n").unwrap_err();
+        assert!(err.to_string().contains("unsafe image filename"), "{err}");
     }
 
     #[test]
