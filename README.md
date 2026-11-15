@@ -26,6 +26,7 @@ Mesa, curl, squashfs, crypto) which is wrapped behind safe crates:
 | Build orchestrator | Rust | `xtask` |
 | Stage/layout model | Rust | `vivelite-core` |
 | Bundle fetch/verify/extract | Rust (+ C tools wrapped) | `bundle` |
+| GPU robustness (HCF port) | Rust (+ Vulkan wrapped) | `hcf` |
 | Wine embedded API | C, wrapped | `wine-sys` → `wine` |
 | FEX in-Wine interfaces | C++, wrapped | `fex-sys` → `fex` |
 | OpenXR loader (Monado) | C, wrapped | `monado-sys` → `monado` |
@@ -44,6 +45,7 @@ cargo xtask extract <image>  # stage SteamOS components
 cargo xtask doctor
 cargo xtask ui              # optional egui host dashboard
 cargo xtask device-ui       # preview the iced device overlay
+cargo xtask gpu-stress <case>   # opt-in HCF GPU robustness workload
 cargo test --workspace
 cargo xtask dev             # build, test, enforce 100% coverage
 ```
@@ -62,11 +64,19 @@ face. Unsafe blocks outside `-sys` crates are banned by workspace lints
 
 ## Ideas
 
-
-- [ ] `cargo xtask gpu-stress <case>`: opt-in, outside `dev` and the coverage gate, with timeout and watchdog
-- [ ] Port Halt and Catch Fire hang cases to Rust with `ash` (start with `hang_infinite_loop`, `hang_host_event`) as GPU robustness workloads
-- [ ] Graphics Flight Recorder (GFR) is blocked on the XR Elite: it requires the AMD-only `VK_AMD_buffer_marker`, and the GPU is Qualcomm Adreno
-- [ ] Evaluate FidelityFX CAS from PorQue4K as a reference for a future upscaling path
+- [x] `cargo xtask gpu-stress <case>`: opt-in, outside `dev` and the
+  coverage gate (the runner is built separately with the `vulkan`
+  feature), with timeout and watchdog
+- [x] Port Halt and Catch Fire hang cases to Rust with `ash`:
+  `hang_infinite_loop` and `hang_host_event` live in `crates/hcf`
+  (GLSL kept in-tree, translated to SPIR-V at runtime with `naga`)
+- [ ] Port more HCF cases as needed (`hang_semaphore`,
+  `hang_timeline_semaphore_host`, the crash cases)
+- [ ] Graphics Flight Recorder (GFR) is blocked on the XR Elite: it
+  requires the AMD-only `VK_AMD_buffer_marker`, and the GPU is Qualcomm
+  Adreno
+- [ ] Evaluate FidelityFX CAS from PorQue4K as a reference for a future
+  upscaling path
 
 ## License
 

@@ -1,0 +1,32 @@
+[package]
+name = "vivelite-hcf"
+description = "Halt and Catch Fire hang cases, ported to Rust with ash: GPU robustness workloads"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# ash is this crate's `-sys` layer: the wrapped C API. Only linked when a
+# case is actually executed on a device, so the default workspace build,
+# its tests, and the coverage gate never need a Vulkan loader.
+ash = { version = "0.38.0", optional = true }
+# GLSL → SPIR-V at runtime, pure Rust: the ported HCF shaders stay GLSL
+# source in-tree and are translated without a C toolchain (glslang et al).
+naga = { version = "30", features = ["glsl-in", "spv-out"] }
+
+[features]
+# Device execution (and the `hcf-runner` binary). Opt-in: compiled only by
+# `cargo xtask gpu-stress`, outside `dev` and the coverage gate.
+vulkan = ["dep:ash"]
+
+[lib]
+name = "hcf"
+
+[[bin]]
+name = "hcf-runner"
+path = "src/bin/hcf-runner.rs"
+required-features = ["vulkan"]
+
+[lints]
+workspace = true

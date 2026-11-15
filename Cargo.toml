@@ -5,6 +5,7 @@ members = [
     "crates/core",
     "crates/device-ui",
     "crates/bundle",
+    "crates/hcf",
     "crates/wine-sys",
     "crates/wine",
     "crates/fex-sys",

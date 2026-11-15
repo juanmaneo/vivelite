@@ -11,6 +11,7 @@
 //! cargo xtask verify               # sha256 + CMS signature
 //! cargo xtask extract <image>      # stage SteamOS components
 //! cargo xtask doctor               # check host + drift
+//! cargo xtask gpu-stress <case>    # HCF GPU robustness workload (opt-in)
 //! ```
 
 use std::ffi::OsString;
@@ -21,6 +22,7 @@ use vivelite_core::device_layout;
 
 pub mod dev;
 pub mod fs;
+pub mod gpu;
 pub mod ui;
 
 /// Parsed command line. Hand-rolled so the parsing is unit-testable with no
@@ -50,6 +52,13 @@ pub enum Cmd {
     },
     /// Report host capability and component drift.
     Doctor,
+    /// Run one Halt and Catch Fire GPU robustness workload (opt-in).
+    GpuStress {
+        /// The HCF case to run, e.g. `hang_infinite_loop`.
+        case: String,
+        /// Watchdog timeout in seconds.
+        timeout_secs: u64,
+    },
     /// Open the egui host dashboard.
     Ui,
     /// Preview the iced device overlay in a desktop window.
@@ -95,6 +104,19 @@ pub fn parse(args: &[String]) -> Result<Cmd, String> {
             Ok(Cmd::Stage { branch })
         }
         "doctor" => Ok(Cmd::Doctor),
+        "gpu-stress" => {
+            let case = rest
+                .first()
+                .cloned()
+                .ok_or_else(|| format!("gpu-stress needs <case> ({})", known_cases()))?;
+            let timeout_secs = match flag_value(rest, "--timeout") {
+                Some(raw) => raw
+                    .parse()
+                    .map_err(|_| format!("--timeout needs a number of seconds, got {raw:?}"))?,
+                None => gpu::DEFAULT_TIMEOUT_SECS,
+            };
+            Ok(Cmd::GpuStress { case, timeout_secs })
+        }
         "ui" => Ok(Cmd::Ui),
         "device-ui" => Ok(Cmd::DeviceUi),
         "dev" => Ok(Cmd::Dev),
@@ -110,9 +132,23 @@ fn flag_value(args: &[String], flag: &str) -> Option<String> {
         .cloned()
 }
 
+/// The ported case names, for parse errors and usage.
+fn known_cases() -> String {
+    hcf::cases()
+        .iter()
+        .map(|c| c.name)
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
 /// Runs one parsed command and returns the message the CLI prints.
 pub fn run(args: &[String]) -> Result<String, String> {
-    run_with(args, &launch_dashboard, &launch_device_overlay)
+    run_with(
+        args,
+        &launch_dashboard,
+        &launch_device_overlay,
+        &dev::cargo_program(),
+    )
 }
 
 /// Launches the egui dashboard; split out so tests can fake the UI.
@@ -136,11 +172,13 @@ pub fn launch_device_overlay_with(run: fn() -> Result<(), device_ui::Error>) -> 
 }
 
 /// Runs a parsed command. `launch_ui` is injected so the dashboard arm is
-/// testable without a display.
+/// testable without a display; `cargo_bin` so the gpu-stress arm is
+/// testable without building the runner.
 pub fn run_with(
     args: &[String],
     launch_ui: &dyn Fn() -> Result<(), String>,
     launch_overlay: &dyn Fn() -> Result<(), String>,
+    cargo_bin: &str,
 ) -> Result<String, String> {
     match parse(args)? {
         Cmd::Help => Ok(usage().to_string()),
@@ -152,6 +190,7 @@ pub fn run_with(
             launch_overlay()?;
             Ok("overlay closed".into())
         }
+        Cmd::GpuStress { case, timeout_secs } => gpu::run(cargo_bin, &case, timeout_secs),
         Cmd::Fetch { url } => {
             let dest = work_root().join("bundles").join("steamos.raucb");
             fs::ensure_dir(&fs::RealFs, dest.parent().unwrap_or(Path::new(".")))?;
@@ -466,6 +505,7 @@ fn usage() -> &'static str {
      cargo xtask verify [--sha256 <hex>]\n\
      cargo xtask extract <slot-image>\n\
      cargo xtask doctor\n\
+     cargo xtask gpu-stress <case> [--timeout <secs>]\n\
      cargo xtask ui                   open the egui host dashboard\n\
      cargo xtask device-ui            preview the iced device overlay\n\
      cargo xtask dev                  build, test, and enforce 100% coverage\n"

@@ -22,3 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `device-ui` crate skeleton (device UI not yet implemented).
 - Host egui dashboard via `cargo xtask ui`.
 - `cargo xtask dev`: build, test, and 100% function/line/region coverage gate.
+- `hcf` crate: Halt and Catch Fire hang cases (`hang_infinite_loop`,
+  `hang_host_event`) ported to Rust with `ash`, with GLSL kept in-tree and
+  translated to SPIR-V at runtime via `naga`; the device execution path
+  lives behind the opt-in `vulkan` feature.
+- `cargo xtask gpu-stress <case> [--timeout <secs>]`: opt-in GPU robustness
+  workloads, outside `dev` and the coverage gate, with a force-exit
+  watchdog (exit code 3 = hang detected, 4 = device lost).

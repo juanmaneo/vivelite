@@ -30,6 +30,7 @@ run" layer; the trust model is identical.
 ├──────────────────────────────────────────────────────────┤
 └ host build: xtask (fetch/verify/extract/stage/doctor)     │  Rust
    egui desktop tools                                       │  Rust
+   hcf: Halt and Catch Fire port, GPU robustness workloads  │  Rust (+ ash)
 ```
 
 ## Trust model

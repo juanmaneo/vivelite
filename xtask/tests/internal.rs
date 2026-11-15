@@ -118,9 +118,9 @@ fn parse_device_ui_command() {
 fn ui_arm_reports_dashboard_closed() {
     let ok = || Ok(());
     let fail = || Err("no display".into());
-    let closed = run_with(&["ui".into()], &ok, &ok);
+    let closed = run_with(&["ui".into()], &ok, &ok, "cargo");
     assert_eq!(closed.unwrap(), "dashboard closed");
-    let err = run_with(&["ui".into()], &fail, &ok);
+    let err = run_with(&["ui".into()], &fail, &ok, "cargo");
     assert_eq!(err.unwrap_err(), "no display");
 }
 
@@ -128,9 +128,9 @@ fn ui_arm_reports_dashboard_closed() {
 fn device_ui_arm_reports_overlay_closed() {
     let ok = || Ok(());
     let fail = || Err("no display".into());
-    let closed = run_with(&["device-ui".into()], &ok, &ok);
+    let closed = run_with(&["device-ui".into()], &ok, &ok, "cargo");
     assert_eq!(closed.unwrap(), "overlay closed");
-    let err = run_with(&["device-ui".into()], &ok, &fail);
+    let err = run_with(&["device-ui".into()], &ok, &fail, "cargo");
     assert_eq!(err.unwrap_err(), "no display");
 }
 
@@ -138,8 +138,73 @@ fn device_ui_arm_reports_overlay_closed() {
 #[test]
 fn run_with_reports_parse_errors() {
     let ok = || Ok(());
-    let err = run_with(&["frobnicate".into()], &ok, &ok).unwrap_err();
+    let err = run_with(&["frobnicate".into()], &ok, &ok, "cargo").unwrap_err();
     assert!(err.contains("unknown command"), "{err}");
+}
+
+#[test]
+fn parse_gpu_stress_case_and_timeout() {
+    assert_eq!(
+        parse(&["gpu-stress".into(), "hang_infinite_loop".into()]).unwrap(),
+        Cmd::GpuStress {
+            case: "hang_infinite_loop".into(),
+            timeout_secs: xtask::gpu::DEFAULT_TIMEOUT_SECS
+        }
+    );
+    assert_eq!(
+        parse(&[
+            "gpu-stress".into(),
+            "hang_host_event".into(),
+            "--timeout".into(),
+            "5".into()
+        ])
+        .unwrap(),
+        Cmd::GpuStress {
+            case: "hang_host_event".into(),
+            timeout_secs: 5
+        }
+    );
+}
+
+#[test]
+fn parse_gpu_stress_rejects_missing_case_and_bad_timeout() {
+    let missing = parse(&["gpu-stress".into()]).unwrap_err();
+    assert!(missing.contains("gpu-stress needs"), "{missing}");
+    assert!(missing.contains("hang_infinite_loop"), "{missing}");
+    assert!(missing.contains("hang_host_event"), "{missing}");
+
+    let bad = parse(&[
+        "gpu-stress".into(),
+        "hang_infinite_loop".into(),
+        "--timeout".into(),
+        "soon".into(),
+    ])
+    .unwrap_err();
+    assert!(bad.contains("--timeout needs"), "{bad}");
+}
+
+/// The gpu-stress arm maps the runner's exit codes; `true` stands in for a
+/// runner that exits 0, and a nonexistent program for a spawn failure.
+#[test]
+fn gpu_stress_arm_reports_the_runner_outcome() {
+    let ok = || Ok(());
+    let msg = run_with(
+        &["gpu-stress".into(), "hang_infinite_loop".into()],
+        &ok,
+        &ok,
+        "true",
+    )
+    .unwrap();
+    assert!(msg.contains("completed"), "{msg}");
+
+    let err = run_with(
+        &["gpu-stress".into(), "hang_infinite_loop".into()],
+        &ok,
+        &ok,
+        "vivelite-definitely-not-a-program",
+    )
+    .unwrap_err();
+    assert!(err.contains("could not run"), "{err}");
 }
 
 #[test]
