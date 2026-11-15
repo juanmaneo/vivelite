@@ -72,10 +72,22 @@ extern "C" {
     );
 
     /// Memory-free notification.
-    pub fn NotifyMemoryFree(address: *mut c_void, size: SizeT, free_type: c_ulong, after: NtBool, status: Ntstatus);
+    pub fn NotifyMemoryFree(
+        address: *mut c_void,
+        size: SizeT,
+        free_type: c_ulong,
+        after: NtBool,
+        status: Ntstatus,
+    );
 
     /// Memory-protect notification (NtProtectVirtualMemory).
-    pub fn NotifyMemoryProtect(address: *mut c_void, size: SizeT, new_prot: Prot, after: NtBool, status: Ntstatus);
+    pub fn NotifyMemoryProtect(
+        address: *mut c_void,
+        size: SizeT,
+        new_prot: Prot,
+        after: NtBool,
+        status: Ntstatus,
+    );
 
     /// MapViewOfSection notification; returns NTSTATUS.
     pub fn NotifyMapViewOfSection(
@@ -100,7 +112,13 @@ extern "C" {
     pub fn BTCpu64NotifyMemoryDirty(address: *const c_void, size: SizeT);
 
     /// Guest read through a file handle into a dirty-tracked buffer.
-    pub fn BTCpu64NotifyReadFile(handle: Handle, address: *mut c_void, size: SizeT, after: NtBool, status: Ntstatus);
+    pub fn BTCpu64NotifyReadFile(
+        handle: Handle,
+        address: *mut c_void,
+        size: SizeT,
+        after: NtBool,
+        status: Ntstatus,
+    );
 
     /// CPUID-style feature probe, ARM64EC flavour.
     pub fn BTCpu64IsProcessorFeaturePresent(feature: c_ulong) -> NtBool;
@@ -223,7 +241,10 @@ mod tests {
     fn dispatch_indices_match_c() {
         // The dispatch enum is ABI: index order must not drift.
         assert_eq!(FexUnixLibFunctions::SetHardwareTsoControl as u32, 0);
-        assert_eq!(FexUnixLibFunctions::SetKernelUnalignedAtomicControl as u32, 1);
+        assert_eq!(
+            FexUnixLibFunctions::SetKernelUnalignedAtomicControl as u32,
+            1
+        );
         assert_eq!(FexUnixLibFunctions::Madvise as u32, 2);
         assert_eq!(FexUnixLibFunctions::SetVmaName as u32, 3);
         assert_eq!(FexUnixLibFunctions::GetShmStatsVma as u32, 4);

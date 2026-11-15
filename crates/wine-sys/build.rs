@@ -14,7 +14,9 @@ fn main() {
             println!("cargo:rustc-cfg=linked_libwine");
         }
         None => {
-            println!("cargo:warning=libwine not found via pkg-config; calls will fail at link time");
+            println!(
+                "cargo:warning=libwine not found via pkg-config; calls will fail at link time"
+            );
         }
     }
     println!("cargo:rerun-if-changed=build.rs");

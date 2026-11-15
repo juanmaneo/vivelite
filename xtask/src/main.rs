@@ -311,16 +311,21 @@ fn stage_with(files: &dyn fs::Fs, work: &Path, meta: &str) -> Result<String, Str
     }
 
     // 7. stage the userspace components (debugfs, no mount, no root).
-    let staged = fs::child(&work, "staged");
-    let components = bundle::steamos_components(&staged);
+    let layout = device_layout(work);
+    let staged = &layout.rootfs;
+    let components = bundle::steamos_components(staged);
     bundle::Ext4Extractor::default()
         .extract(&rootfs_img, &components)
         .map_err(|e| e.to_string())?;
+    let report = vivelite_core::staging::validate_and_write_manifest(staged)
+        .map_err(|e| format!("staged SteamOS layout is incomplete: {e}"))?;
 
     Ok(format!(
-        "staged {} SteamOS components under {} (rootfs {} at {})",
-        components.len(),
+        "staged {} SteamOS components under {} ({} files, {} bytes; rootfs {} at {})",
+        report.components,
         staged.display(),
+        report.files,
+        report.bytes,
         cand.buildid,
         rootfs_img.display()
     ))

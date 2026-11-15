@@ -134,10 +134,17 @@ extern "C" {
     ) -> XrResult;
 
     /// Create an instance against the active runtime.
-    pub fn xrCreateInstance(create_info: *const XrInstanceCreateInfo, instance: *mut XrInstance) -> XrResult;
+    pub fn xrCreateInstance(
+        create_info: *const XrInstanceCreateInfo,
+        instance: *mut XrInstance,
+    ) -> XrResult;
 
     /// Ask the runtime for a system id for a form factor.
-    pub fn xrGetSystem(instance: XrInstance, get_info: *const XrSystemGetInfo, system_id: *mut XrSystemId) -> XrResult;
+    pub fn xrGetSystem(
+        instance: XrInstance,
+        get_info: *const XrSystemGetInfo,
+        system_id: *mut XrSystemId,
+    ) -> XrResult;
 
     /// Destroy an instance.
     pub fn xrDestroyInstance(instance: XrInstance) -> XrResult;

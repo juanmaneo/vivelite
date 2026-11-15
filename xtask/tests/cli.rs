@@ -131,8 +131,11 @@ case "$req" in
         esac
         ;;
     rdump\ *)
+        inner=$(echo "$req" | awk '{print $2}')
         dest=$(echo "$req" | awk '{print $3}')
-        mkdir -p "$dest/fake-dir"
+        name=${inner##*/}
+        mkdir -p "$dest/$name"
+        printf 'component' > "$dest/$name/payload"
         ;;
     dump\ *)
         dest=$(echo "$req" | awk '{print $3}')

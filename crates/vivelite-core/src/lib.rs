@@ -12,6 +12,8 @@
 
 use std::path::Path;
 
+pub mod staging;
+
 /// Build stages, in the order `xtask` runs them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Stage {
