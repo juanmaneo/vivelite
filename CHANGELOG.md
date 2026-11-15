@@ -14,6 +14,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `LICENSE-MIT` and `LICENSE-APACHE` license texts (dual-licensed `MIT OR Apache-2.0`).
 - `CHANGELOG.md`.
+
+### Security
+
+- `bundle`: `RaucVerifier` now runs `rauc info --keyring <VIVELITE_RAUC_KEYRING>` (the verifying command; the previous `rauc status` never checked the bundle signature) and fails closed when no keyring is configured.
+- `bundle`: `OpensslVerifier` requires an explicit trusted CA file and never falls back to `-noverify`.
+- `bundle`: `debugfs` request paths are validated before spawning; atomupd feed paths and manifest image filenames are rejected when they could traverse or escape.
+- `xtask`: staging validates feed paths via `bundle` helpers before building URLs or host paths.
+- `wine`: `init` leaks argv for the process lifetime (fixes a use-after-free) and reports the error string returned by `wine_init`.
+
+### Fixed
+
+- `hcf`: the watchdog returns an error when its thread cannot start instead of silently running without one.
+- `hcf`: the Vulkan output buffer offset honors the buffer's alignment requirement.
+- `bundle`: tool spawn failures report "could not be started" instead of a fake exit status.
+- `monado`: `VIVELITE_XR_RUNTIME` pointing at a `.json` file is classified as a runtime socket path (loader only for `XR_RUNTIME_JSON`).
 - Workspace with `xtask` build orchestrator and `vivelite-core` stage/layout model.
 - `bundle` crate: fetch (streamed, resumable), sha256 + CMS signature verification (rauc), and SteamOS component extraction.
 - `wine-sys` / `wine`: prefix management, embedded loader init, and version probe.

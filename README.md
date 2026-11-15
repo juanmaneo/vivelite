@@ -41,7 +41,7 @@ normal windowed desktop tools (host-side build UI, doctor dashboard).
 ```sh
 export VIVELITE_BUNDLE_URL=<Valve SteamOS ARM64 RAUC bundle URL>
 cargo xtask fetch            # streamed, resumable
-cargo xtask verify           # sha256 + CMS signature (rauc)
+cargo xtask verify           # CMS signature (requires VIVELITE_RAUC_KEYRING)
 cargo xtask extract <image>  # stage SteamOS components
 cargo xtask doctor
 cargo xtask ui              # optional egui host dashboard
