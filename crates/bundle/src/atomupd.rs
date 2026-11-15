@@ -269,4 +269,12 @@ mod tests {
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0].buildid, "b1");
     }
+
+    #[test]
+    fn truncated_candidate_fields_are_rejected_not_panicked() {
+        let truncated = r#"{"candidates": [{"buildid": "1", "update_path"#;
+        assert!(parse_candidates(truncated).is_err());
+        let no_quote = r#"{"candidates": [{"buildid": 1, "update_path": "x"}]}"#;
+        assert!(parse_candidates(no_quote).is_err());
+    }
 }

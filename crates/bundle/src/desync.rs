@@ -229,6 +229,7 @@ mod tests {
 
     #[test]
     fn info_parses_the_fake_output() {
+        let _guard = crate::spawn_lock();
         let dir = tempfile::tempdir().unwrap();
         let bin = fake_desync(dir.path(), "ok");
         let caibx = dir.path().join("rootfs.img.caibx");
@@ -249,6 +250,7 @@ mod tests {
 
     #[test]
     fn cache_flag_is_passed_when_configured() {
+        let _guard = crate::spawn_lock();
         let dir = tempfile::tempdir().unwrap();
         let bin = fake_desync(dir.path(), "ok");
         let cache = dir.path().join("cache");
@@ -269,6 +271,7 @@ mod tests {
 
     #[test]
     fn info_reports_missing_unique_field() {
+        let _guard = crate::spawn_lock();
         let dir = tempfile::tempdir().unwrap();
         let bin = fake_desync(dir.path(), "noinfo");
         let caibx = dir.path().join("i.caibx");
@@ -279,6 +282,7 @@ mod tests {
 
     #[test]
     fn reconstruct_writes_and_validates_the_image() {
+        let _guard = crate::spawn_lock();
         let dir = tempfile::tempdir().unwrap();
         let bin = fake_desync(dir.path(), "ok");
         let caibx = dir.path().join("i.caibx");
@@ -309,6 +313,7 @@ mod tests {
 
     #[test]
     fn reconstruct_rejects_an_empty_output() {
+        let _guard = crate::spawn_lock();
         let dir = tempfile::tempdir().unwrap();
         let bin = fake_desync(dir.path(), "empty");
         let err = reconstructor(&bin)
@@ -322,6 +327,7 @@ mod tests {
 
     #[test]
     fn tool_failure_carries_stderr() {
+        let _guard = crate::spawn_lock();
         let dir = tempfile::tempdir().unwrap();
         let bin = fake_desync(dir.path(), "fail");
         let err = reconstructor(&bin)

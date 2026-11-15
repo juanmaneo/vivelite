@@ -423,3 +423,35 @@ fn dev_command_uses_configured_cargo_and_ui_fails_fast_without_display() {
     assert_eq!(ui.status.code(), Some(2));
     assert!(stderr(&ui).contains("could not launch dashboard"));
 }
+
+#[test]
+fn fetch_and_extract_argument_and_io_edges() {
+    let f = Fixture::new();
+    let from_env = f
+        .command(&["fetch"])
+        .env("VIVELITE_BUNDLE_URL", "https://example.invalid/env.raucb")
+        .output()
+        .unwrap();
+    assert!(from_env.status.success(), "{}", stderr(&from_env));
+    assert!(stdout(&from_env).contains("https://example.invalid/env.raucb"));
+
+    let no_url = f
+        .command(&["fetch"])
+        .env_remove("VIVELITE_BUNDLE_URL")
+        .output()
+        .unwrap();
+    assert_eq!(no_url.status.code(), Some(2));
+    assert!(stderr(&no_url).contains("fetch needs <bundle-url>"));
+
+    let blocked = f
+        .command(&["extract", "slot.img"])
+        .env("PATH", "/nonexistent")
+        .output()
+        .unwrap();
+    assert_eq!(blocked.status.code(), Some(2));
+    assert!(
+        stderr(&blocked).contains("could not run"),
+        "{}",
+        stderr(&blocked)
+    );
+}

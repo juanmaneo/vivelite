@@ -237,6 +237,7 @@ mod tests {
 
     #[test]
     fn squashfs_extractor_extracts_and_groups() {
+        let _guard = crate::spawn_lock();
         let dir = tempfile::tempdir().unwrap();
         let log = dir.path().join("squashfs.log");
         let unsq = fake_tool(
@@ -304,6 +305,7 @@ done
 
     #[test]
     fn squashfs_extractor_tool_failure_is_reported() {
+        let _guard = crate::spawn_lock();
         let dir = tempfile::tempdir().unwrap();
         let unsq = fake_tool(
             dir.path(),
@@ -350,6 +352,7 @@ done
 
     #[test]
     fn ext4_extractor_dumps_directories_and_files() {
+        let _guard = crate::spawn_lock();
         let dir = tempfile::tempdir().unwrap();
         let log = dir.path().join("debugfs.log");
         let debugfs = fake_tool(
@@ -422,6 +425,7 @@ esac
 
     #[test]
     fn ext4_extractor_reports_tool_failure() {
+        let _guard = crate::spawn_lock();
         let dir = tempfile::tempdir().unwrap();
         let debugfs = fake_tool(
             dir.path(),
@@ -449,6 +453,7 @@ esac
 
     #[test]
     fn ext4_extractor_treats_missing_inode_as_error() {
+        let _guard = crate::spawn_lock();
         let dir = tempfile::tempdir().unwrap();
         // debugfs exits 0 but prints the sentinel on stdout (no stderr).
         let debugfs = fake_tool(

@@ -205,11 +205,13 @@ pub fn launch() -> Result<(), eframe::Error> {
             .with_title("vivelite — Host dashboard"),
         ..Default::default()
     };
-    eframe::run_native(
-        "vivelite — Host dashboard",
-        options,
-        Box::new(|_cc| Ok(Box::new(Dashboard::new()))),
-    )
+    eframe::run_native("vivelite — Host dashboard", options, Box::new(new_app))
+}
+
+fn new_app(
+    _cc: &eframe::CreationContext<'_>,
+) -> Result<Box<dyn eframe::App>, Box<dyn std::error::Error + Send + Sync>> {
+    Ok(Box::new(Dashboard::new()))
 }
 
 #[cfg(test)]
@@ -236,12 +238,12 @@ mod tests {
     /// Steps until the background task result has been applied.
     fn drain_until_idle(h: &mut Harness<'static, Dashboard>) {
         for _ in 0..200 {
-            if !h.state().busy {
-                return;
-            }
             h.run_steps(1);
+            if !h.state().busy {
+                break;
+            }
         }
-        panic!("dashboard task never finished");
+        assert!(!h.state().busy, "dashboard task never finished");
     }
 
     #[test]
@@ -332,6 +334,16 @@ mod tests {
             ]
         );
         assert_eq!(h.state().output, "✓ done");
+    }
+
+    #[test]
+    fn panicking_runner_is_reported_as_an_error() {
+        let runner: TaskRunner = Arc::new(|_args: &[String]| panic!("runner exploded"));
+        let mut h = harness(work_dir(), runner);
+        h.get_by_label("Doctor").click();
+        h.run_steps(1);
+        drain_until_idle(&mut h);
+        assert_eq!(h.state().output, "✗ task stopped unexpectedly");
     }
 
     #[test]

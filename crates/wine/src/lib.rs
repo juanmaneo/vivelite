@@ -193,4 +193,18 @@ mod tests {
         let n = N.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         std::env::temp_dir().join(format!("vivelite-test-{}-{}", std::process::id(), n))
     }
+
+    #[test]
+    fn skeleton_creation_failures_are_reported() {
+        let dir = tempfile_dir();
+        std::fs::create_dir_all(&dir).unwrap();
+        // A regular file where a directory is needed makes creation fail.
+        std::fs::write(dir.join("drive_c"), b"file").unwrap();
+        assert!(Prefix::open(&dir).is_err());
+
+        let dir = tempfile_dir();
+        std::fs::create_dir_all(dir.join("drive_c")).unwrap();
+        std::fs::write(dir.join("drive_c/users"), b"file").unwrap();
+        assert!(Prefix::open(&dir).is_err());
+    }
 }

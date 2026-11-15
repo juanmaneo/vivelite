@@ -74,12 +74,23 @@ impl From<std::io::Error> for Error {
 /// Result alias for the pipeline.
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Serializes tests that write fake tool scripts and spawn processes. A fork
+/// in one test thread can inherit a script's open write fd from another, and
+/// executing that script then fails with `ETXTBSY`.
+#[cfg(test)]
+pub(crate) fn spawn_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock()
+        .expect("spawn lock poisoned by an earlier failing test")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn error_display_is_helpful() {
+        let _guard = spawn_lock();
         let e = Error::ChecksumMismatch {
             expected: "aa".into(),
             actual: "bb".into(),

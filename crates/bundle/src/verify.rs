@@ -195,6 +195,7 @@ mod tests {
 
     #[test]
     fn rauc_verifier_success_failure_and_spawn_error() {
+        let _guard = crate::spawn_lock();
         let dir = tempfile::tempdir().unwrap();
         let bundle = dir.path().join("bundle.raucb");
         std::fs::write(&bundle, b"signed bundle").unwrap();
@@ -226,6 +227,7 @@ mod tests {
 
     #[test]
     fn openssl_verifier_success_ca_file_failure_and_spawn_error() {
+        let _guard = crate::spawn_lock();
         let dir = tempfile::tempdir().unwrap();
         let bundle = dir.path().join("bundle.raucb");
         std::fs::write(&bundle, b"signed bundle").unwrap();
@@ -267,5 +269,13 @@ mod tests {
         .verify(&bundle)
         .unwrap_err();
         assert!(err.to_string().contains("could not run openssl"), "{err}");
+    }
+
+    #[test]
+    fn sha256_file_reports_read_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        // Reading a directory fails after `open` succeeds on Linux.
+        assert!(sha256_file(dir.path()).is_err());
+        assert!(verify_file_sha256(dir.path(), "00").is_err());
     }
 }

@@ -221,4 +221,37 @@ mod tests {
         reset_partial(&path).unwrap();
         assert_eq!(std::fs::metadata(&path).unwrap().len(), 0);
     }
+
+    #[test]
+    fn io_failures_are_reported_not_panicked() {
+        let dir = tempfile::tempdir().unwrap();
+        // A directory where the destination file should be cannot be opened.
+        let as_dir = dir.path().join("is-a-dir");
+        std::fs::create_dir(&as_dir).unwrap();
+        assert!(append_to(&as_dir, &mut std::io::Cursor::new(b"x"), &mut |_, _| Ok(())).is_err());
+        assert!(
+            fetch_to_quiet(&as_dir, |_| Ok(Box::new(std::io::Cursor::new(
+                b"x".to_vec()
+            ))))
+            .is_err()
+        );
+        assert!(reset_partial(&as_dir).is_err());
+
+        // A reader that fails mid-stream surfaces the error.
+        let path = dir.path().join("broken.bin");
+        let broken = fetch_to_quiet(&path, |_| Ok(Box::new(FailingReader)));
+        assert!(broken.is_err());
+
+        // The reader factory itself failing is reported.
+        let path = dir.path().join("no-reader.bin");
+        assert!(fetch_to_quiet(&path, |_| Err(std::io::Error::other("offline"))).is_err());
+    }
+
+    struct FailingReader;
+
+    impl Read for FailingReader {
+        fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("connection reset"))
+        }
+    }
 }

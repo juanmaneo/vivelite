@@ -105,8 +105,9 @@ mod tests {
         assert_eq!(cargo_program(), "vivelite-test-cargo");
         std::env::remove_var("CARGO");
         assert_eq!(cargo_program(), "cargo");
-        if let Some(value) = saved {
-            std::env::set_var("CARGO", value);
+        match saved {
+            Some(value) => std::env::set_var("CARGO", value),
+            None => std::env::remove_var("CARGO"),
         }
     }
 }
