@@ -65,7 +65,7 @@ pub enum RuntimeEndpoint {
 pub fn detect_endpoint() -> RuntimeEndpoint {
     if let Ok(v) = std::env::var("VIVELITE_XR_RUNTIME") {
         if v.ends_with(".json") {
-            return RuntimeEndpoint::Loader(v);
+            return RuntimeEndpoint::Socket(PathBuf::from(v));
         }
         if v.ends_with(".so") || v.contains(".so.") {
             return RuntimeEndpoint::Loader(v);
@@ -366,7 +366,7 @@ mod tests {
         std::env::set_var("VIVELITE_XR_RUNTIME", "/etc/openxr/runtime.json");
         assert_eq!(
             detect_endpoint(),
-            RuntimeEndpoint::Loader("/etc/openxr/runtime.json".into())
+            RuntimeEndpoint::Socket(PathBuf::from("/etc/openxr/runtime.json"))
         );
 
         std::env::remove_var("VIVELITE_XR_RUNTIME");
