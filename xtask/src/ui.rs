@@ -237,11 +237,10 @@ mod tests {
 
     /// Steps until the background task result has been applied.
     fn drain_until_idle(h: &mut Harness<'static, Dashboard>) {
-        for _ in 0..200 {
+        let mut steps = 0;
+        while h.state().busy && steps < 200 {
             h.run_steps(1);
-            if !h.state().busy {
-                break;
-            }
+            steps += 1;
         }
         assert!(!h.state().busy, "dashboard task never finished");
     }
@@ -253,6 +252,11 @@ mod tests {
         h.get_by_label_contains("System readiness");
         h.get_by_label_contains("Setup workflows");
         h.get_by_label_contains("Review host readiness");
+
+        h.get_by_label("Doctor").click();
+        h.run_steps(1);
+        drain_until_idle(&mut h);
+        assert!(h.state().output.starts_with("✓"), "{}", h.state().output);
     }
 
     #[test]
@@ -362,14 +366,28 @@ mod tests {
         assert!(new_app(&cc).is_ok());
     }
 
-    /// Opening a real window needs a display. Hosts without one take the
-    /// error path; hosts with one skip so the test never opens a window.
+    /// Run native launch in a child with display variables removed, so this
+    /// test reaches the no-display error path without opening a real window.
     #[test]
     fn launch_without_a_display_reports_an_error() {
-        if std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some() {
+        const CHILD: &str = "VIVELITE_XTASK_UI_HEADLESS_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            let outcome = std::panic::catch_unwind(launch);
+            assert!(matches!(outcome, Ok(Err(_)) | Err(_)));
             return;
         }
-        assert!(launch().is_err());
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "ui::tests::launch_without_a_display_reports_an_error",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .env_remove("DISPLAY")
+            .env_remove("WAYLAND_DISPLAY")
+            .status()
+            .unwrap();
+        assert!(status.success());
     }
 
     #[test]

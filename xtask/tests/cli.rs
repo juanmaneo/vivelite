@@ -37,6 +37,7 @@ impl Fixture {
             "curl",
             r#"
 if [ -n "$FAKE_CURL_FAIL" ]; then echo 'fake curl failed' >&2; exit 7; fi
+if [ -n "$FAKE_CURL_NOOP" ]; then exit 0; fi
 out=""
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -84,6 +85,7 @@ for p in "$@"; do
             case "$FAKE_STAGE_SCENARIO" in
                 incompatible) printf '[update]\ncompatible=steamos-x86\n[image.rootfs]\nfilename=rootfs.img.caibx\n' > "$target" ;;
                 no-compatible) printf '[image.rootfs]\nfilename=rootfs.img.caibx\n' > "$target" ;;
+                badmanifest) printf '[broken\n' > "$target" ;;
                 no-rootfs) printf '[update]\ncompatible=steamos-aarch64\n[image.boot]\nfilename=boot.caibx\n' > "$target" ;;
                 no-sha) printf '[update]\ncompatible=steamos-aarch64\n[image.rootfs]\nfilename=rootfs.img.caibx\n' > "$target" ;;
                 missing-caibx) printf '[update]\ncompatible=steamos-aarch64\n[image.rootfs]\nfilename=missing.caibx\n' > "$target" ;;
@@ -118,6 +120,9 @@ if [ -n "$FAKE_DESYNC_EMPTY" ]; then : > "$out"; else printf 'rootfs-bytes' > "$
             "debugfs",
             r#"
 req="$2"
+if [ "$FAKE_DEBUGFS_SCENARIO" = skip ]; then
+    case "$req" in dump\ *|rdump\ *) exit 0 ;; esac
+fi
 case "$FAKE_DEBUGFS_SCENARIO" in
     notfound) echo 'File not found by ext2_lookup'; exit 0 ;;
     failure) echo 'debugfs failure' >&2; exit 8 ;;
@@ -179,6 +184,9 @@ fn stderr(output: &Output) -> String {
 #[test]
 fn help_unknown_and_argument_errors() {
     let f = Fixture::new();
+    let empty = f.run(&[]);
+    assert!(empty.status.success());
+    assert!(stdout(&empty).contains("cargo xtask dev"));
     let help = f.run(&["help"]);
     assert!(help.status.success());
     assert!(stdout(&help).contains("cargo xtask dev"));
@@ -266,6 +274,13 @@ fn doctor_reports_missing_dependencies_and_default_work_root() {
 #[test]
 fn stage_success_and_manifest_failures() {
     let f = Fixture::new();
+    let default_branch = f.run(&["stage"]);
+    assert!(
+        default_branch.status.success(),
+        "{}\n{}",
+        stdout(&default_branch),
+        stderr(&default_branch)
+    );
     let ok = f.stage("ok");
     assert!(ok.status.success(), "{}\n{}", stdout(&ok), stderr(&ok));
     assert!(stdout(&ok).contains("staged 5 SteamOS components"));
@@ -293,6 +308,78 @@ fn stage_success_and_manifest_failures() {
             stderr(&failed)
         );
     }
+}
+
+#[test]
+fn fetch_reports_missing_output_after_successful_curl() {
+    let f = Fixture::new();
+    let out = f
+        .command(&["fetch", "https://example.invalid/noop.raucb"])
+        .env("FAKE_CURL_NOOP", "1")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("No such file or directory"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn fetch_reports_work_dir_creation_failure() {
+    let f = Fixture::new();
+    let blocker = f.root.path().join("blocker");
+    fs::write(&blocker, "not a directory").unwrap();
+    let out = f
+        .command(&["fetch", "https://example.invalid/b.raucb"])
+        .env("VIVELITE_WORK", blocker.join("work"))
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+    assert!(stderr(&out).contains("blocker"), "{}", stderr(&out));
+}
+
+#[test]
+fn stage_reports_blocked_unpack_and_chunk_cache_dirs() {
+    let f = Fixture::new();
+    let bundles = f.work.join("bundles");
+    fs::create_dir_all(&bundles).unwrap();
+    fs::write(bundles.join("b1.d"), "blocks the unpack dir").unwrap();
+    let out = f.stage("ok");
+    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+    assert!(stderr(&out).contains("b1.d"), "{}", stderr(&out));
+
+    let _ = fs::remove_dir_all(&bundles);
+    let cache = f.work.join("cache");
+    fs::create_dir_all(&cache).unwrap();
+    fs::write(cache.join("desync"), "blocks the chunk cache").unwrap();
+    let out = f.stage("ok");
+    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+    assert!(stderr(&out).contains("desync"), "{}", stderr(&out));
+}
+
+#[test]
+fn stage_reports_manifest_parse_and_incomplete_layout() {
+    let f = Fixture::new();
+    let bad = f.stage("badmanifest");
+    assert_eq!(bad.status.code(), Some(2), "{}", stderr(&bad));
+    assert!(stderr(&bad).contains("bad manifest"), "{}", stderr(&bad));
+
+    let _ = fs::remove_dir_all(f.work.join("bundles"));
+    let _ = fs::remove_dir_all(f.work.join("staged"));
+    let _ = fs::remove_file(f.work.join("rootfs-b1.img"));
+    let incomplete = f
+        .command(&["stage", "stable"])
+        .env("FAKE_DEBUGFS_SCENARIO", "skip")
+        .output()
+        .unwrap();
+    assert_eq!(incomplete.status.code(), Some(2), "{}", stderr(&incomplete));
+    assert!(
+        stderr(&incomplete).contains("staged SteamOS layout is incomplete"),
+        "{}",
+        stderr(&incomplete)
+    );
 }
 
 #[test]

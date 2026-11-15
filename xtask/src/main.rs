@@ -13,6 +13,7 @@
 //! cargo xtask doctor               # check host + drift
 //! ```
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use bundle::{Extractor, RootfsReconstructor, SignatureVerifier};
@@ -238,10 +239,12 @@ fn stage(branch: &str) -> Result<String, String> {
 /// feed text as inputs so tests can run it without network or environment.
 fn stage_with(files: &dyn fs::Fs, work: &Path, meta: &str) -> Result<String, String> {
     // 1. atomupd metadata: latest candidate for the branch.
+    // `parse_candidates` returns an error for an empty array, so success
+    // always yields at least one candidate.
     let cand = bundle::parse_candidates(meta)
         .map_err(|e| e.to_string())?
         .pop()
-        .ok_or("no candidates in the feed")?;
+        .expect("parse_candidates guarantees at least one candidate");
     eprintln!(
         "steamOS {} ({}), bundle {}",
         cand.version,
@@ -254,7 +257,7 @@ fn stage_with(files: &dyn fs::Fs, work: &Path, meta: &str) -> Result<String, Str
     fs::ensure_dir(files, &bundles)?;
     let bundle_path = fs::child(&bundles, cand.bundle_filename());
     if !files.exists(&bundle_path) {
-        curl(&cand.bundle_url(), &bundle_path)?;
+        curl("curl", &cand.bundle_url(), &bundle_path)?;
     }
 
     // 3. verify the CMS signature against Valve's RAUC CA.
@@ -280,8 +283,7 @@ fn stage_with(files: &dyn fs::Fs, work: &Path, meta: &str) -> Result<String, Str
             ],
         )
         .map_err(|e| e.to_string())?;
-    let manifest_text = fs::read_text(files, &fs::child(&unpack, "manifest.raucm"))?;
-    let manifest = bundle::parse_manifest(&manifest_text).map_err(|e| e.to_string())?;
+    let manifest = read_manifest(files, &unpack)?;
     let compatible = manifest
         .compatible
         .as_deref()
@@ -357,6 +359,12 @@ fn stage_with(files: &dyn fs::Fs, work: &Path, meta: &str) -> Result<String, Str
     ))
 }
 
+/// Reads and parses the manifest that `unsquashfs` extracted from the bundle.
+fn read_manifest(files: &dyn fs::Fs, unpack: &Path) -> Result<bundle::Manifest, String> {
+    let text = fs::read_text(files, &fs::child(unpack, "manifest.raucm"))?;
+    bundle::parse_manifest(&text).map_err(|e| e.to_string())
+}
+
 /// Small text fetch via curl (transport stays a wrapped C tool).
 fn fetch_text(url: &str) -> Result<String, String> {
     let out = run_curl(
@@ -387,9 +395,9 @@ fn run_curl(program: &str, args: &[String]) -> Result<std::process::Output, Stri
         .map_err(|e| format!("could not run curl: {e}"))
 }
 
-fn curl(url: &str, dest: &Path) -> Result<(), String> {
+fn curl(program: &str, url: &str, dest: &Path) -> Result<(), String> {
     let out = run_curl(
-        "curl",
+        program,
         &[
             "--continue-at".into(),
             "-".into(),
@@ -431,7 +439,11 @@ fn cmd_exists(bin: &str, what: &str) -> (bool, String) {
 }
 
 fn which(bin: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
+    which_in(std::env::var_os("PATH"), bin)
+}
+
+fn which_in(path: Option<OsString>, bin: &str) -> Option<PathBuf> {
+    let path = path?;
     std::env::split_paths(&path)
         .map(|dir| dir.join(bin))
         .find(|p| p.is_file())
@@ -545,20 +557,66 @@ mod tests {
 
     #[test]
     fn ui_arm_reports_dashboard_closed() {
-        let ok = run_with(&["ui".into()], &|| Ok(()), &|| Ok(()));
-        assert_eq!(ok.unwrap(), "dashboard closed");
-        let err = run_with(&["ui".into()], &|| Err("no display".into()), &|| Ok(()));
+        let ok = || Ok(());
+        let fail = || Err("no display".into());
+        let closed = run_with(&["ui".into()], &ok, &ok);
+        assert_eq!(closed.unwrap(), "dashboard closed");
+        let err = run_with(&["ui".into()], &fail, &ok);
         assert_eq!(err.unwrap_err(), "no display");
     }
 
     #[test]
     fn device_ui_arm_reports_overlay_closed() {
-        let ok = run_with(&["device-ui".into()], &|| Ok(()), &|| Ok(()));
-        assert_eq!(ok.unwrap(), "overlay closed");
-        let err = run_with(&["device-ui".into()], &|| Ok(()), &|| {
-            Err("no display".into())
-        });
+        let ok = || Ok(());
+        let fail = || Err("no display".into());
+        let closed = run_with(&["device-ui".into()], &ok, &ok);
+        assert_eq!(closed.unwrap(), "overlay closed");
+        let err = run_with(&["device-ui".into()], &ok, &fail);
         assert_eq!(err.unwrap_err(), "no display");
+    }
+
+    #[test]
+    fn which_resolves_only_existing_files_on_path() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("tool"), "").unwrap();
+        let path =
+            std::env::join_paths([dir.path().join("missing"), dir.path().to_path_buf()]).unwrap();
+        assert_eq!(which_in(Some(path), "tool"), Some(dir.path().join("tool")));
+        assert_eq!(which_in(Some(OsString::from(dir.path())), "absent"), None);
+        assert_eq!(which_in(None, "tool"), None);
+    }
+
+    #[test]
+    fn curl_reports_spawn_failure_before_download() {
+        let err = curl(
+            "/nonexistent/vivelite-curl",
+            "https://example.invalid/b.raucb",
+            Path::new("unused.raucb"),
+        )
+        .unwrap_err();
+        assert!(err.contains("could not run curl"), "{err}");
+    }
+
+    #[test]
+    fn read_manifest_reports_read_and_parse_failures() {
+        let dir = tempfile::tempdir().unwrap();
+        let read_fail = FailingFs {
+            fail: "read_to_string",
+        };
+        let err = read_manifest(&read_fail, dir.path()).unwrap_err();
+        assert!(err.contains("injected read failure"), "{err}");
+
+        std::fs::write(dir.path().join("manifest.raucm"), "[broken\n").unwrap();
+        let err = read_manifest(&fs::RealFs, dir.path()).unwrap_err();
+        assert!(err.contains("bad manifest"), "{err}");
+
+        std::fs::write(
+            dir.path().join("manifest.raucm"),
+            "[update]\ncompatible=steamos-aarch64\n",
+        )
+        .unwrap();
+        let manifest = read_manifest(&fs::RealFs, dir.path()).unwrap();
+        assert_eq!(manifest.compatible.as_deref(), Some("steamos-aarch64"));
     }
 
     #[test]
@@ -569,14 +627,48 @@ mod tests {
 
     #[test]
     fn failing_fs_delegates_operations_it_does_not_fail() {
-        let files = FailingFs { fail: "other" };
         let work = tempfile::tempdir().unwrap();
         let file = work.path().join("present.txt");
         std::fs::write(&file, "abc").unwrap();
+        let files = FailingFs { fail: "other" };
         assert!(files.exists(&file));
         assert!(!files.exists(&work.path().join("missing")));
         assert_eq!(files.metadata_len(&file).unwrap(), 3);
         assert!(files.metadata_len(&work.path().join("missing")).is_err());
+        files.create_dir_all(&work.path().join("created")).unwrap();
+        assert_eq!(files.read_to_string(&file).unwrap(), "abc");
+
+        let mkdir_failure = FailingFs {
+            fail: "create_dir_all",
+        };
+        assert!(mkdir_failure
+            .create_dir_all(&work.path().join("failed"))
+            .is_err());
+        let read_failure = FailingFs {
+            fail: "read_to_string",
+        };
+        assert!(read_failure.read_to_string(&file).is_err());
+    }
+
+    #[test]
+    fn device_overlay_launcher_handles_the_real_headless_runtime() {
+        const CHILD: &str = "VIVELITE_XTASK_OVERLAY_HEADLESS_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            assert!(launch_device_overlay().is_err());
+            return;
+        }
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "tests::device_overlay_launcher_handles_the_real_headless_runtime",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .env_remove("DISPLAY")
+            .env_remove("WAYLAND_DISPLAY")
+            .status()
+            .unwrap();
+        assert!(status.success());
     }
 
     #[test]
