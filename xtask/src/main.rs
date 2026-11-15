@@ -122,7 +122,11 @@ fn launch_dashboard() -> Result<(), String> {
 }
 
 fn launch_device_overlay() -> Result<(), String> {
-    device_ui::run().map_err(|e| format!("could not launch device overlay: {e}"))
+    // iced 0.13 panics instead of returning an error when no display can be
+    // opened, so catch that here and reuse the egui launcher's error path.
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(device_ui::run))
+        .map_err(|_| "could not launch device overlay: no display available".to_string())?
+        .map_err(|e| format!("could not launch device overlay: {e}"))
 }
 
 /// Runs a parsed command. `launch_ui` is injected so the dashboard arm is
