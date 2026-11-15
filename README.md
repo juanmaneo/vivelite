@@ -54,11 +54,6 @@ face. Unsafe blocks outside `-sys` crates are banned by workspace lints
 
 ## Status
 
-- [x] Workspace + bundle pipeline (fetch/verify/extract) with tests
-- [x] `wine-sys`/`wine`: prefix management, embedded loader init, version probe
-- [x] `fex-sys`/`fex`: BT interface + unixlib dispatch, device capability model
-- [x] `monado-sys`/`monado`: OpenXR loader probe, runtime endpoint detection
-- [x] Host UI (egui): doctor dashboard and setup workflows (`cargo xtask ui`)
 - [ ] Local dev-check (`cargo xtask dev`): build, test, 100% function/line/region coverage
 - [ ] Device UI (iced): overlay compositor frontend
 - [ ] SteamOS component staging against a real Steam Frame image
