@@ -21,7 +21,9 @@ pub struct Prefix {
 impl Prefix {
     /// Use the prefix at `root`, creating the skeleton if missing.
     pub fn open(root: &Path) -> std::io::Result<Prefix> {
-        let p = Prefix { root: root.to_path_buf() };
+        let p = Prefix {
+            root: root.to_path_buf(),
+        };
         if !p.registry().exists() {
             p.create_skeleton()?;
         }
@@ -118,10 +120,8 @@ pub unsafe fn init(argv: &[String]) -> Result<(), String> {
         .map(|a| CString::new(a.as_str()).map_err(|_| "interior NUL in argv"))
         .collect::<Result<_, _>>()?;
     cargs.insert(0, CString::new("vivelite").unwrap());
-    let mut ptrs: Vec<*mut std::os::raw::c_char> = cargs
-        .iter_mut()
-        .map(|c| c.as_ptr() as *mut _)
-        .collect();
+    let mut ptrs: Vec<*mut std::os::raw::c_char> =
+        cargs.iter_mut().map(|c| c.as_ptr() as *mut _).collect();
     ptrs.push(std::ptr::null_mut());
     let argc = (ptrs.len() - 1) as std::os::raw::c_int;
     // wine_init logs failures itself; there is no status return.
@@ -140,6 +140,7 @@ mod tests {
         assert!(p.registry().exists());
         assert!(p.drive_c().exists());
         assert!(p.users().exists());
+        assert_eq!(p.root(), dir.as_path());
     }
 
     #[test]
@@ -162,6 +163,29 @@ mod tests {
         // The registry file must not have been duplicated.
         let n = std::fs::read_dir(&dir).unwrap().count();
         assert!(n >= 4);
+    }
+
+    #[test]
+    fn skeleton_preserves_existing_registry_file() {
+        let dir = tempfile_dir();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("user.reg"), "existing registry").unwrap();
+        let prefix = Prefix { root: dir.clone() };
+        prefix.create_skeleton().unwrap();
+        assert_eq!(
+            std::fs::read_to_string(prefix.registry()).unwrap(),
+            "existing registry"
+        );
+        assert!(dir.join("system.reg").exists());
+        assert!(dir.join("userdef.reg").exists());
+    }
+
+    #[test]
+    fn open_reports_skeleton_creation_errors() {
+        let dir = tempfile_dir();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("drive_c"), "not a directory").unwrap();
+        assert!(Prefix::open(&dir).is_err());
     }
 
     fn tempfile_dir() -> PathBuf {

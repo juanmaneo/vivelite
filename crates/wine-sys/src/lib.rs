@@ -42,7 +42,12 @@ extern "C" {
     /// Initializes the Wine loader in-process: starts wineserver and the
     /// loader threads. Must be called exactly once, from the thread that will
     /// drive the main Wine thread.
-    pub fn wine_init(argc: c_int, argv: *mut *mut c_char, error: c_int, error_length: c_int) -> *mut c_char;
+    pub fn wine_init(
+        argc: c_int,
+        argv: *mut *mut c_char,
+        error: c_int,
+        error_length: c_int,
+    ) -> *mut c_char;
 
     /// Returns a file descriptor for the wineserver pipe on success, -1 on error.
     pub fn wine_server_send_fd(fd: c_int) -> c_int;
@@ -70,6 +75,20 @@ mod tests {
 
     #[test]
     fn init_args_layout_is_c_compatible() {
-        assert_eq!(std::mem::size_of::<WineInitArgs>(), std::mem::size_of::<usize>() * 2);
+        assert_eq!(
+            std::mem::size_of::<WineInitArgs>(),
+            std::mem::size_of::<usize>() * 2
+        );
+    }
+
+    #[test]
+    fn cstr_handles_null_valid_and_invalid_utf8() {
+        let valid = std::ffi::CString::new("wine-10.0").unwrap();
+        let invalid = std::ffi::CString::new(vec![0xff]).unwrap();
+        unsafe {
+            assert_eq!(cstr(std::ptr::null()), "");
+            assert_eq!(cstr(valid.as_ptr()), "wine-10.0");
+            assert_eq!(cstr(invalid.as_ptr()), "");
+        }
     }
 }

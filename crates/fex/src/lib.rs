@@ -51,7 +51,11 @@ impl FexConfig {
     /// Config for a device, choosing the fastest correct options.
     pub fn for_device(d: DeviceCapabilities) -> FexConfig {
         FexConfig {
-            tso: if d.hardware_tso { TsoMode::Hardware } else { TsoMode::Software },
+            tso: if d.hardware_tso {
+                TsoMode::Hardware
+            } else {
+                TsoMode::Software
+            },
             unaligned_flags: if d.kernel_unaligned_atomic {
                 unalign_atomic::EMULATE | unalign_atomic::BACKPATCH
             } else {
@@ -98,14 +102,21 @@ mod tests {
 
     #[test]
     fn capable_device_uses_hardware_tso() {
-        let d = DeviceCapabilities { hardware_tso: true, kernel_unaligned_atomic: true };
+        let d = DeviceCapabilities {
+            hardware_tso: true,
+            kernel_unaligned_atomic: true,
+        };
         let c = FexConfig::for_device(d);
         assert!(c.requests_hardware_tso());
         assert_eq!(c.unaligned_flags, 0x3);
+        assert!(c.summary().contains("tso=hardware"));
     }
 
     #[test]
     fn tso_dispatch_is_the_c_index() {
-        assert_eq!(FexConfig::for_device(DeviceCapabilities::VIVE_XR_ELITE).tso_dispatch() as u32, 0);
+        assert_eq!(
+            FexConfig::for_device(DeviceCapabilities::VIVE_XR_ELITE).tso_dispatch() as u32,
+            0
+        );
     }
 }

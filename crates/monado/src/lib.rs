@@ -155,7 +155,7 @@ impl XrError {
 }
 
 fn write_padded(dst: &mut [std::os::raw::c_char], s: &str) {
-    for (i, b) in s.bytes().take(dst.len() - 1).enumerate() {
+    for (i, b) in s.bytes().take(dst.len().saturating_sub(1)).enumerate() {
         dst[i] = b as std::os::raw::c_char;
     }
 }
@@ -205,6 +205,11 @@ mod tests {
             detect_endpoint(),
             RuntimeEndpoint::Loader("/lib/libopenxr_loader.so".into())
         );
+        std::env::set_var("VIVELITE_XR_RUNTIME", "/etc/openxr/runtime.json");
+        assert_eq!(
+            detect_endpoint(),
+            RuntimeEndpoint::Loader("/etc/openxr/runtime.json".into())
+        );
 
         std::env::remove_var("VIVELITE_XR_RUNTIME");
         std::env::set_var("XR_RUNTIME_JSON", "/etc/openxr/1/runtime/monado.json");
@@ -215,5 +220,25 @@ mod tests {
 
         std::env::remove_var("VIVELITE_XR_RUNTIME");
         std::env::remove_var("XR_RUNTIME_JSON");
+    }
+
+    #[test]
+    fn raw_returns_the_instance_handle() {
+        let instance = Instance { raw: 42 };
+        assert_eq!(instance.raw(), 42);
+    }
+
+    #[test]
+    fn write_padded_copies_and_truncates() {
+        let mut dst = [0 as std::os::raw::c_char; 5];
+        write_padded(&mut dst, "abc");
+        assert_eq!(&dst[..3], &[b'a' as _, b'b' as _, b'c' as _]);
+        assert_eq!(dst[3], 0);
+        let mut full = [0 as std::os::raw::c_char; 4];
+        write_padded(&mut full, "abcdef");
+        assert_eq!(&full, &[b'a' as _, b'b' as _, b'c' as _, 0]);
+        let mut empty = [];
+        write_padded(&mut empty, "ignored");
+        assert!(empty.is_empty());
     }
 }

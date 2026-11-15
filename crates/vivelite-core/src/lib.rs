@@ -76,6 +76,8 @@ mod tests {
     #[test]
     fn stage_names_are_stable() {
         assert_eq!(Stage::Fetch.name(), "fetch");
+        assert_eq!(Stage::Verify.name(), "verify");
+        assert_eq!(Stage::Extract.name(), "extract");
         assert_eq!(Stage::Stage.name(), "stage");
     }
 

@@ -87,6 +87,8 @@ mod tests {
         assert!(e.to_string().contains("expected aa, got bb"));
         let io = Error::Io(std::io::Error::other("disk"));
         assert!(io.to_string().contains("io error: disk"));
+        let bad = Error::BadManifest("syntax".into());
+        assert_eq!(bad.to_string(), "bad manifest: syntax");
         let other = Error::Other("context".into());
         assert_eq!(other.to_string(), "context");
         let tool = Error::Tool {

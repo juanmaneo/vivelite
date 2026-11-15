@@ -197,6 +197,8 @@ size=104857600
         let size_first = parse_manifest("[image.data]\nsize=12\n").unwrap();
         assert_eq!(size_first.images[0].filename, "");
         assert_eq!(size_first.images[0].size, Some(12));
+        let size_after_sha = parse_manifest("[image.data]\nsha256=xyz\nsize=13\n").unwrap();
+        assert_eq!(size_after_sha.images[0].size, Some(13));
     }
 
     #[test]
