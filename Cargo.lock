@@ -3154,6 +3154,7 @@ version = "0.1.1"
 dependencies = [
  "bundle",
  "eframe",
+ "tempfile",
  "vivelite-core",
 ]
 
