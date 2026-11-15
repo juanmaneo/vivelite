@@ -1,0 +1,13 @@
+[package]
+name = "xtask"
+description = "vivelite build orchestrator: fetch / verify / extract / stage / doctor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+bundle = { path = "../crates/bundle" }
+eframe = { version = "0.31", default-features = false, features = ["default_fonts", "glow", "x11"] }
+vivelite-core = { path = "../crates/vivelite-core" }
+
+[dev-dependencies]

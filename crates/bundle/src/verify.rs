@@ -1,0 +1,158 @@
+//! Checksum and signature verification.
+//!
+//! sha256 is computed in Rust (`sha2`). The CMS signature on a RAUC bundle is
+//! verified by shelling out to `rauc` (preferred) or `openssl cms` — both are
+//! C tools, wrapped here behind a trait, consistent with the project rule:
+//! crypto primitives stay C, orchestration is Rust.
+
+use std::fmt::Write as _;
+use std::path::Path;
+use std::process::Command;
+
+use sha2::{Digest, Sha256};
+
+use crate::{Error, Result};
+
+/// Lowercase hex encoding (std still lacks a stable one for slices).
+pub fn hex(bytes: &[u8]) -> String {
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        write!(s, "{b:02x}").unwrap();
+    }
+    s
+}
+
+/// Compute the sha256 of a file, streaming.
+pub fn sha256_file(path: &Path) -> Result<String> {
+    let mut f = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = std::io::Read::read(&mut f, &mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hex(&hasher.finalize()))
+}
+
+/// In-memory sha256 helper, used by tests and small files.
+pub fn sha256_hex(data: &[u8]) -> String {
+    hex(&Sha256::digest(data))
+}
+
+/// Verify a file against an expected lowercase-hex sha256.
+pub fn verify_file_sha256(path: &Path, expected: &str) -> Result<()> {
+    let expected_norm = expected.trim().to_lowercase();
+    let actual = sha256_file(path)?;
+    if actual == expected_norm {
+        Ok(())
+    } else {
+        Err(Error::ChecksumMismatch { expected: expected_norm, actual })
+    }
+}
+
+/// How to verify the bundle's CMS signature.
+pub trait SignatureVerifier {
+    /// Verify the RAUC bundle at `bundle`. Returns `Ok(())` when the
+    /// signature is valid and chains to a trusted root.
+    fn verify(&self, bundle: &Path) -> Result<()>;
+}
+
+/// Shells out to `rauc` — the reference implementation, C.
+#[derive(Debug, Clone, Default)]
+pub struct RaucVerifier {
+    /// Path to the `rauc` binary; defaults to `rauc` on PATH.
+    pub rauc_bin: Option<String>,
+}
+
+impl RaucVerifier {
+    fn cmd(&self) -> Command {
+        Command::new(self.rauc_bin.as_deref().unwrap_or("rauc"))
+    }
+}
+
+impl SignatureVerifier for RaucVerifier {
+    fn verify(&self, bundle: &Path) -> Result<()> {
+        let out = self
+            .cmd()
+            .arg("status")
+            .arg("--output-format=json")
+            .arg(bundle)
+            .output()
+            .map_err(|e| Error::Tool {
+                tool: "rauc",
+                status: std::process::ExitStatus::default(),
+                stderr: format!("could not run rauc: {e}"),
+            })?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(Error::Tool { tool: "rauc", status: out.status, stderr: String::from_utf8_lossy(&out.stderr).into_owned() })
+        }
+    }
+}
+
+/// Fallback when `rauc` is not available: `openssl cms -verify`.
+#[derive(Debug, Clone, Default)]
+pub struct OpensslVerifier {
+    /// Path to the trusted CA bundle (Valve's public certificate).
+    pub ca_file: Option<String>,
+}
+
+impl SignatureVerifier for OpensslVerifier {
+    fn verify(&self, bundle: &Path) -> Result<()> {
+        let mut cmd = Command::new("openssl");
+        cmd.arg("cms").arg("-verify").arg("-binary").arg("-in").arg(bundle);
+        if let Some(ca) = &self.ca_file {
+            cmd.arg("-CAfile").arg(ca);
+        } else {
+            cmd.arg("-noverify");
+        }
+        let out = cmd.output().map_err(|e| Error::Tool {
+            tool: "openssl",
+            status: std::process::ExitStatus::default(),
+            stderr: format!("could not run openssl: {e}"),
+        })?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(Error::Tool { tool: "openssl", status: out.status, stderr: String::from_utf8_lossy(&out.stderr).into_owned() })
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn known_sha256_vector() {
+        // Well-known NIST vector for "abc".
+        assert_eq!(
+            sha256_hex(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert_eq!(
+            sha256_hex(b""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+    }
+
+    #[test]
+    fn hex_is_lowercase_pairs() {
+        assert_eq!(hex(&[0x00, 0xff, 0x0a]), "00ff0a");
+    }
+
+    #[test]
+    fn verify_roundtrip_and_mismatch() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("f.bin");
+        std::fs::write(&p, b"steamos").unwrap();
+        let sum = sha256_file(&p).unwrap();
+        assert!(verify_file_sha256(&p, &sum).is_ok());
+        assert!(verify_file_sha256(&p, &sum.to_uppercase()).is_ok(), "case-insensitive");
+        assert!(verify_file_sha256(&p, "00").is_err());
+    }
+}

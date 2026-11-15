@@ -1,0 +1,15 @@
+[package]
+name = "wine-sys"
+description = "Raw FFI bindings to Wine's embedded C API (libwine)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+links = "wine"
+
+[dependencies]
+
+[features]
+# Link against libwine at build time (pkg-config). Off by default: layout and
+# ABI tests run on any machine; enable on a host with Wine dev libraries
+# before calling into the bindings.
+link = []

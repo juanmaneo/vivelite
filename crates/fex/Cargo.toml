@@ -1,0 +1,9 @@
+[package]
+name = "fex"
+description = "Safe wrapper around FEX's Wine interfaces for vivelite"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+fex-sys = { path = "../fex-sys" }

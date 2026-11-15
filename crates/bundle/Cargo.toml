@@ -1,0 +1,12 @@
+[package]
+name = "bundle"
+description = "Fetch, verify and extract Valve's signed ARM64 SteamOS RAUC bundle"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"

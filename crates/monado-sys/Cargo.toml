@@ -1,0 +1,14 @@
+[package]
+name = "monado-sys"
+description = "Raw FFI bindings to the OpenXR loader (Monado runtime)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+links = "openxr_loader"
+
+[dependencies]
+
+[features]
+# Link against libopenxr_loader. Off by default: ABI layout tests run without
+# an OpenXR SDK installed; enable on the device or a host with the loader.
+link = []
