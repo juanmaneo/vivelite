@@ -56,13 +56,19 @@ fn run(args: &[String]) -> i32 {
         case.summary,
         timeout.as_secs()
     );
-    let watchdog = hcf::Watchdog::arm(timeout, move || {
+    let watchdog = match hcf::Watchdog::arm(timeout, move || {
         eprintln!(
             "hcf: watchdog fired after {}s: GPU hang detected",
             timeout.as_secs()
         );
         std::process::exit(hcf::EXIT_HANG);
-    });
+    }) {
+        Ok(watchdog) => watchdog,
+        Err(e) => {
+            eprintln!("error: cannot start watchdog: {e}");
+            return 1;
+        }
+    };
 
     let result = vulkan::execute(case);
     watchdog.disarm();

@@ -202,6 +202,12 @@ fn device_name(instance: &ash::Instance, physical: vk::PhysicalDevice) -> String
     String::from_utf8_lossy(&bytes[..end].iter().map(|&c| c as u8).collect::<Vec<_>>()).into_owned()
 }
 
+/// Rounds `value` up to a multiple of `alignment` (a Vulkan requirement
+/// alignment, which is always a power of two).
+fn align_up(value: vk::DeviceSize, alignment: vk::DeviceSize) -> vk::DeviceSize {
+    value.div_ceil(alignment) * alignment
+}
+
 /// One case's SSBO pair, carved out of a single allocation exactly like
 /// upstream: `bufferIn` bound at offset 0, `bufferOut` at offset
 /// `BUFFER_BYTES`, one `HOST_VISIBLE|HOST_COHERENT` mapping for both.
@@ -224,31 +230,37 @@ fn create_buffers(gpu: &Gpu, case: &Case) -> Result<Buffers, Error> {
     let output = unsafe { gpu.device.create_buffer(&info, None) }.map_err(vk_err)?;
 
     // SAFETY: `input` is a valid buffer of this device.
-    let requirements = unsafe { gpu.device.get_buffer_memory_requirements(input) };
-    let ty = memory_type(&gpu.memory_properties, requirements.memory_type_bits)
-        .ok_or(Error::NoMemoryType)?;
+    let input_requirements = unsafe { gpu.device.get_buffer_memory_requirements(input) };
+    // SAFETY: `output` is a valid buffer of this device.
+    let output_requirements = unsafe { gpu.device.get_buffer_memory_requirements(output) };
+    let output_offset = align_up(BUFFER_BYTES, output_requirements.alignment);
+    let allocation_size = output_offset + BUFFER_BYTES;
+    let ty = memory_type(
+        &gpu.memory_properties,
+        input_requirements.memory_type_bits & output_requirements.memory_type_bits,
+    )
+    .ok_or(Error::NoMemoryType)?;
     let memory_info = vk::MemoryAllocateInfo::default()
-        .allocation_size(BUFFER_BYTES * 2)
+        .allocation_size(allocation_size)
         .memory_type_index(ty);
-    // SAFETY: one small allocation for the whole case, sized like upstream
-    // (2 * bufferSize).
+    // SAFETY: one allocation for the whole case, large enough for both
+    // buffers at their aligned offsets.
     let memory = unsafe { gpu.device.allocate_memory(&memory_info, None) }.map_err(vk_err)?;
 
-    // SAFETY: offsets 0 and BUFFER_BYTES are within the allocation and
-    // satisfy the buffer alignment requirements (both buffers have the
-    // same size and usage).
+    // SAFETY: offsets 0 and `output_offset` are within the allocation and
+    // satisfy the buffer alignment requirements.
     unsafe {
         gpu.device
             .bind_buffer_memory(input, memory, 0)
             .map_err(vk_err)?;
         gpu.device
-            .bind_buffer_memory(output, memory, BUFFER_BYTES)
+            .bind_buffer_memory(output, memory, output_offset)
             .map_err(vk_err)?;
     }
 
     let (in_words, out_words) = buffer_init_words(case.init);
     // SAFETY: the memory type is host-visible and coherent, the mapping
-    // covers both buffers (allocation is `BUFFER_BYTES * 2`), and the word
+    // covers both buffers (allocation is `allocation_size`), and the word
     // slices match the buffer sizes, so the copies stay in bounds.
     unsafe {
         let ptr = gpu
@@ -262,7 +274,7 @@ fn create_buffers(gpu: &Gpu, case: &Case) -> Result<Buffers, Error> {
         );
         std::ptr::copy_nonoverlapping(
             out_words.as_ptr().cast::<u8>(),
-            ptr.cast::<u8>().add(BUFFER_BYTES as usize),
+            ptr.cast::<u8>().add(output_offset as usize),
             out_words.len() * 4,
         );
         gpu.device.unmap_memory(memory);
