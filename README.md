@@ -43,6 +43,7 @@ cargo xtask extract <image>  # stage SteamOS components
 cargo xtask doctor
 cargo xtask ui              # optional egui host dashboard
 cargo test --workspace
+./scripts/dev-check.sh      # build, test, enforce 100% coverage
 ```
 
 ## Safety
