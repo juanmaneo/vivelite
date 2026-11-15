@@ -66,6 +66,8 @@ pub trait SignatureVerifier {
 /// Shells out to `rauc` — the reference implementation, C.
 #[derive(Debug, Clone, Default)]
 pub struct RaucVerifier {
+    /// Path to the trusted RAUC keyring. Verification fails closed when unset.
+    pub keyring: Option<String>,
     /// Path to the `rauc` binary; defaults to `rauc` on PATH.
     pub rauc_bin: Option<String>,
 }
@@ -78,15 +80,20 @@ impl RaucVerifier {
 
 impl SignatureVerifier for RaucVerifier {
     fn verify(&self, bundle: &Path) -> Result<()> {
+        let keyring = self.keyring.as_deref().ok_or_else(|| {
+            Error::Other("RAUC verification requires an explicit trusted keyring".into())
+        })?;
         let out = self
             .cmd()
-            .arg("status")
+            .arg("info")
             .arg("--output-format=json")
+            .arg("--keyring")
+            .arg(keyring)
             .arg(bundle)
             .output()
             .map_err(|e| Error::Tool {
                 tool: "rauc",
-                status: std::process::ExitStatus::default(),
+                status: None,
                 stderr: format!("could not run rauc: {e}"),
             })?;
         if out.status.success() {
@@ -94,7 +101,7 @@ impl SignatureVerifier for RaucVerifier {
         } else {
             Err(Error::Tool {
                 tool: "rauc",
-                status: out.status,
+                status: Some(out.status),
                 stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
             })
         }
@@ -118,14 +125,13 @@ impl SignatureVerifier for OpensslVerifier {
             .arg("-binary")
             .arg("-in")
             .arg(bundle);
-        if let Some(ca) = &self.ca_file {
-            cmd.arg("-CAfile").arg(ca);
-        } else {
-            cmd.arg("-noverify");
-        }
+        let ca_file = self.ca_file.as_deref().ok_or_else(|| {
+            Error::Other("OpenSSL verification requires an explicit trusted CA file".into())
+        })?;
+        cmd.arg("-CAfile").arg(ca_file);
         let out = cmd.output().map_err(|e| Error::Tool {
             tool: "openssl",
-            status: std::process::ExitStatus::default(),
+            status: None,
             stderr: format!("could not run openssl: {e}"),
         })?;
         if out.status.success() {
@@ -133,7 +139,7 @@ impl SignatureVerifier for OpensslVerifier {
         } else {
             Err(Error::Tool {
                 tool: "openssl",
-                status: out.status,
+                status: Some(out.status),
                 stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
             })
         }
@@ -201,16 +207,21 @@ mod tests {
         std::fs::write(&bundle, b"signed bundle").unwrap();
         let success = fake_verifier_tool(dir.path(), "rauc-ok", "exit 0");
         RaucVerifier {
+            keyring: Some("/etc/rauc/valve-ca.pem".into()),
             rauc_bin: Some(success.to_string_lossy().into_owned()),
         }
         .verify(&bundle)
         .unwrap();
         let calls = std::fs::read_to_string(dir.path().join("rauc-ok.log")).unwrap();
-        assert!(calls.contains("status --output-format=json"), "{calls}");
+        assert!(
+            calls.contains("info --output-format=json --keyring /etc/rauc/valve-ca.pem"),
+            "{calls}"
+        );
         assert!(calls.contains("bundle.raucb"), "{calls}");
 
         let failure = fake_verifier_tool(dir.path(), "rauc-fail", "echo invalid >&2; exit 2");
         let err = RaucVerifier {
+            keyring: Some("trusted.pem".into()),
             rauc_bin: Some(failure.to_string_lossy().into_owned()),
         }
         .verify(&bundle)
@@ -218,11 +229,18 @@ mod tests {
         assert!(err.to_string().contains("invalid"), "{err}");
 
         let err = RaucVerifier {
+            keyring: Some("trusted.pem".into()),
             rauc_bin: Some("/nonexistent/rauc".into()),
         }
         .verify(&bundle)
         .unwrap_err();
         assert!(err.to_string().contains("could not run rauc"), "{err}");
+
+        let err = RaucVerifier::default().verify(&bundle).unwrap_err();
+        assert!(
+            err.to_string().contains("explicit trusted keyring"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -232,16 +250,16 @@ mod tests {
         let bundle = dir.path().join("bundle.raucb");
         std::fs::write(&bundle, b"signed bundle").unwrap();
 
-        let noverify = fake_verifier_tool(dir.path(), "openssl-noverify", "exit 0");
-        OpensslVerifier {
+        let missing_ca = OpensslVerifier {
             ca_file: None,
-            openssl_bin: Some(noverify.to_string_lossy().into_owned()),
+            openssl_bin: Some("openssl".into()),
         }
         .verify(&bundle)
-        .unwrap();
-        let calls = std::fs::read_to_string(dir.path().join("openssl-noverify.log")).unwrap();
-        assert!(calls.contains("cms -verify -binary -in"), "{calls}");
-        assert!(calls.contains("-noverify"), "{calls}");
+        .unwrap_err();
+        assert!(
+            missing_ca.to_string().contains("explicit trusted CA"),
+            "{missing_ca}"
+        );
 
         let cafile = fake_verifier_tool(dir.path(), "openssl-cafile", "exit 0");
         OpensslVerifier {
@@ -255,7 +273,7 @@ mod tests {
 
         let failure = fake_verifier_tool(dir.path(), "openssl-fail", "echo bad-cms >&2; exit 2");
         let err = OpensslVerifier {
-            ca_file: None,
+            ca_file: Some("trusted.pem".into()),
             openssl_bin: Some(failure.to_string_lossy().into_owned()),
         }
         .verify(&bundle)
@@ -263,7 +281,7 @@ mod tests {
         assert!(err.to_string().contains("bad-cms"), "{err}");
 
         let err = OpensslVerifier {
-            ca_file: None,
+            ca_file: Some("trusted.pem".into()),
             openssl_bin: Some("/nonexistent/openssl".into()),
         }
         .verify(&bundle)

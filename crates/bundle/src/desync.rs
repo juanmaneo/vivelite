@@ -99,13 +99,13 @@ impl DesyncReconstructor {
         cmd.arg(sub).args(self.args(positional));
         let out = cmd.output().map_err(|e| Error::Tool {
             tool,
-            status: std::process::ExitStatus::default(),
+            status: None,
             stderr: format!("could not run {tool}: {e}"),
         })?;
         if !out.status.success() {
             return Err(Error::Tool {
                 tool,
-                status: out.status,
+                status: Some(out.status),
                 stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
             });
         }

@@ -42,8 +42,8 @@ pub enum Error {
     Tool {
         /// The binary that failed.
         tool: &'static str,
-        /// Its exit status.
-        status: std::process::ExitStatus,
+        /// Its exit status, or `None` when the tool could not be started.
+        status: Option<std::process::ExitStatus>,
         /// Its collected stderr.
         stderr: String,
     },
@@ -61,10 +61,17 @@ impl std::fmt::Display for Error {
             }
             Error::Tool {
                 tool,
-                status,
+                status: Some(status),
                 stderr,
             } => {
                 write!(f, "{tool} failed ({status}): {stderr}")
+            }
+            Error::Tool {
+                tool,
+                status: None,
+                stderr,
+            } => {
+                write!(f, "{tool} could not be started: {stderr}")
             }
             Error::Other(m) => write!(f, "{m}"),
         }
@@ -112,10 +119,19 @@ mod tests {
         assert_eq!(other.to_string(), "context");
         let tool = Error::Tool {
             tool: "rauc",
-            status: std::process::Command::new("true").status().unwrap(),
+            status: Some(std::process::Command::new("true").status().unwrap()),
             stderr: "bad signature".into(),
         };
         assert!(tool.to_string().contains("rauc failed ("));
         assert!(tool.to_string().contains("bad signature"));
+        let missing = Error::Tool {
+            tool: "rauc",
+            status: None,
+            stderr: "no such file".into(),
+        };
+        assert_eq!(
+            missing.to_string(),
+            "rauc could not be started: no such file"
+        );
     }
 }
