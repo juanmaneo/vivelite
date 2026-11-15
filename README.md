@@ -64,7 +64,7 @@ face. Unsafe blocks outside `-sys` crates are banned by workspace lints
 - [x] Local dev-check (`cargo xtask dev`): build, test, 100% function/line/region coverage. Verified with and without `DISPLAY`/`WAYLAND_DISPLAY` on Linux; window-launch tests run in child processes with those variables removed
 - [ ] Device UI (iced): overlay compositor frontend. The preview window and the XR render path build and are tested headlessly (`cargo xtask device-ui`, `cargo xtask device-ui --xr`); the render path wraps the session's swapchain `VkImage`s as wgpu textures via a shared-device graphics binding — on-device validation is pending
 - [ ] SteamOS component staging against a real Steam Frame image. Layout validation and manifest writing are tested with fixtures; a real-image run is pending. Requires `VIVELITE_RAUC_KEYRING` (Valve's RAUC CA) to verify bundles; verification fails closed without it
-- [ ] Dependabot `lru` advisory (RUSTSEC, `IterMut` soundness, fixed in 0.16.3): `lru` 0.12.5 comes in through `iced` 0.13 → `iced_glyphon` 0.6, which pins it. Clearing it needs an `iced` upgrade, which is deferred
+- [x] Dependabot `lru` advisory (RUSTSEC, `IterMut` soundness, fixed in 0.16.3): cleared by the iced 0.14 upgrade; `lru` now resolves to 0.16.4 through `cryoglyph`
 
 ## Ideas
 

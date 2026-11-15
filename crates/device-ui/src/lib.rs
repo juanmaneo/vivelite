@@ -21,7 +21,9 @@ pub use iced::Error;
 ///
 /// Returns any error iced reports while creating the window or event loop.
 pub fn run() -> Result<(), Error> {
-    iced::application("vivelite overlay", view::update, view::view).run()
+    iced::application(crate::model::Overlay::new, view::update, view::view)
+        .title("vivelite overlay")
+        .run()
 }
 
 #[cfg(test)]

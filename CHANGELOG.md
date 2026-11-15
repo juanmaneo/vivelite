@@ -15,8 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `LICENSE-MIT` and `LICENSE-APACHE` license texts (dual-licensed `MIT OR Apache-2.0`).
 - `CHANGELOG.md`.
 
+### Changed
+
+- `device-ui`: upgraded iced 0.13 → 0.14 (`iced::application(boot, update, view)` API), and the `xr` render path to wgpu 27 and ash 0.38 to match iced's wgpu engine and wgpu-hal. The `x11` and `wayland` iced features are enabled to avoid a `softbuffer` build failure.
+
 ### Security
 
+- `device-ui`: the iced 0.14 upgrade clears the `lru` `IterMut` soundness advisory (RUSTSEC, fixed in 0.16.3); `lru` now resolves to 0.16.4.
 - `bundle`: `RaucVerifier` now runs `rauc info --keyring <VIVELITE_RAUC_KEYRING>` (the verifying command; the previous `rauc status` never checked the bundle signature) and fails closed when no keyring is configured.
 - `bundle`: `OpensslVerifier` requires an explicit trusted CA file and never falls back to `-noverify`.
 - `bundle`: `debugfs` request paths are validated before spawning; atomupd feed paths and manifest image filenames are rejected when they could traverse or escape.

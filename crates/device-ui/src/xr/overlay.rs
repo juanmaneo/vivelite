@@ -30,7 +30,7 @@ use std::time::Duration;
 
 use ash::vk::Handle as _;
 use iced_runtime::user_interface::{Cache, UserInterface};
-use iced_wgpu::graphics::Viewport;
+use iced_wgpu::graphics::{Shell, Viewport};
 use iced_wgpu::{Engine, Renderer as WgpuRenderer};
 use monado::session::{GraphicsBinding, Session, Space, Swapchain};
 use monado::{
@@ -78,7 +78,7 @@ pub enum OverlayError {
     NoVulkan,
     /// The runtime offers none of the overlay's supported `VkFormat`s.
     UnsupportedFormat,
-    /// The iced renderer is not the wgpu (primary) variant.
+    /// The iced renderer is not using its wgpu primary backend.
     RendererUnavailable,
     /// An OpenXR call failed.
     Xr(XrError),
@@ -134,30 +134,31 @@ impl XrGpu {
     /// [`OverlayError::NoAdapter`] without a Vulkan driver and
     /// [`OverlayError::DeviceRequest`] when the device request fails.
     pub fn new() -> Result<Self, OverlayError> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        let instance_descriptor = wgpu::InstanceDescriptor {
             backends: wgpu::Backends::VULKAN,
             ..wgpu::InstanceDescriptor::default()
-        });
+        };
+        let instance = wgpu::Instance::new(&instance_descriptor);
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: None,
             force_fallback_adapter: false,
         }))
-        .ok_or(OverlayError::NoAdapter)?;
+        .map_err(|_| OverlayError::NoAdapter)?;
         // The limits mirror what iced's own compositor requests
         // (`max_bind_groups: 2`); the overlay renders no more complex
         // pipelines than the desktop preview window does.
-        let (device, queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                label: Some("vivelite xr overlay device"),
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits {
-                    max_bind_groups: 2,
-                    ..wgpu::Limits::default()
-                },
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("vivelite xr overlay device"),
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits {
+                max_bind_groups: 2,
+                ..wgpu::Limits::default()
             },
-            None,
-        ))
+            memory_hints: wgpu::MemoryHints::MemoryUsage,
+            trace: wgpu::Trace::Off,
+            experimental_features: wgpu::ExperimentalFeatures::disabled(),
+        }))
         .map_err(|error| OverlayError::DeviceRequest(format!("{error:?}")))?;
         Ok(Self {
             instance,
@@ -185,19 +186,12 @@ impl XrGpu {
             let instance = self.instance.as_hal::<Api>()?;
             let vk_instance =
                 instance.shared_instance().raw_instance().handle().as_raw() as *mut c_void;
-            let vk_physical_device = self.adapter.as_hal::<Api, _, _>(|adapter| {
-                adapter.map(|adapter| adapter.raw_physical_device().as_raw() as *mut c_void)
-            })?;
-            let (vk_device, queue_family_index, queue_index) =
-                self.device.as_hal::<Api, _, _>(|device| {
-                    device.map(|device| {
-                        (
-                            device.raw_device().handle().as_raw() as *mut c_void,
-                            device.queue_family_index(),
-                            device.queue_index(),
-                        )
-                    })
-                })??;
+            let adapter = self.adapter.as_hal::<Api>()?;
+            let vk_physical_device = adapter.raw_physical_device().as_raw() as *mut c_void;
+            let device = self.device.as_hal::<Api>()?;
+            let vk_device = device.raw_device().handle().as_raw() as *mut c_void;
+            let (queue_family_index, queue_index) =
+                (device.queue_family_index(), device.queue_index());
             Some(GraphicsBinding {
                 instance: vk_instance,
                 physical_device: vk_physical_device,
@@ -226,7 +220,7 @@ impl XrGpu {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: texture_format,
-            usage: wgpu::hal::TextureUses::COLOR_TARGET,
+            usage: wgpu::TextureUses::COLOR_TARGET,
             memory_flags: wgpu::hal::MemoryFlags::empty(),
             view_formats: Vec::new(),
         };
@@ -247,23 +241,15 @@ impl XrGpu {
         // descriptors mirror the swapchain's real extent, format, and
         // single-sample color-attachment usage, and the sentinel drop
         // guard keeps wgpu from destroying the runtime-owned image when
-        // the wrapper drops. `as_hal` is unsafe only because it exposes the
-        // raw backend; the closure reads no handle beyond the device check.
+        // the wrapper drops.
         let hal_texture = unsafe {
-            self.device.as_hal::<Api, _, _>(|hal_device| {
-                hal_device.map(|_| {
-                    wgpu::hal::vulkan::Device::texture_from_raw(
-                        hal_image,
-                        &hal_descriptor,
-                        Some(Box::new(())),
-                    )
-                })
-            })??
+            let hal_device = self.device.as_hal::<Api>()?;
+            hal_device.texture_from_raw(hal_image, &hal_descriptor, Some(Box::new(|| {})))
         };
         // SAFETY: the hal texture was built from this device's raw handle
-        // one call above; the wgpu descriptor mirrors the hal descriptor,
-        // and the render pass clears and writes the whole image before
-        // the runtime reads it.
+        // above; the wgpu descriptor mirrors the hal descriptor, and the
+        // render pass clears and writes the whole image before the runtime
+        // reads it.
         Some(unsafe {
             self.device
                 .create_texture_from_hal::<Api>(hal_texture, &descriptor)
@@ -275,9 +261,8 @@ impl XrGpu {
 #[allow(missing_debug_implementations)]
 pub struct XrRenderer {
     gpu: XrGpu,
-    engine: Engine,
-    /// The iced renderer. Only the `Primary` (wgpu) variant is ever
-    /// constructed; the tiny-skia fallback never runs on the device.
+    /// The iced renderer, configured to use wgpu. The tiny-skia fallback
+    /// never runs on the device.
     renderer: iced::Renderer,
     format: wgpu::TextureFormat,
 }
@@ -286,16 +271,21 @@ impl XrRenderer {
     /// Builds iced's wgpu engine and renderer for `format`.
     #[must_use]
     pub fn new(gpu: XrGpu, format: wgpu::TextureFormat) -> Self {
-        let engine = Engine::new(&gpu.adapter, &gpu.device, &gpu.queue, format, None);
+        let engine = Engine::new(
+            &gpu.adapter,
+            gpu.device.clone(),
+            gpu.queue.clone(),
+            format,
+            None,
+            Shell::headless(),
+        );
         let renderer = iced::Renderer::Primary(WgpuRenderer::new(
-            &gpu.device,
-            &engine,
+            engine,
             iced::Font::default(),
             iced::Pixels::from(16.0),
         ));
         Self {
             gpu,
-            engine,
             renderer,
             format,
         }
@@ -308,9 +298,7 @@ impl XrRenderer {
     ///
     /// # Errors
     ///
-    /// [`OverlayError::NoVulkan`] when the image cannot be wrapped, and
-    /// [`OverlayError::RendererUnavailable`] if the iced renderer is not
-    /// the wgpu backend (never constructed here).
+    /// [`OverlayError::NoVulkan`] when the image cannot be wrapped.
     pub fn render_into(
         &mut self,
         overlay: &Overlay,
@@ -340,7 +328,7 @@ impl XrRenderer {
         );
         // No pointer on the device: the cursor is always unavailable, so
         // widgets draw their un-hovered state.
-        let _interaction = user_interface.draw(
+        user_interface.draw(
             &mut self.renderer,
             &iced::Theme::Dark,
             &iced_wgpu::core::renderer::Style {
@@ -349,34 +337,20 @@ impl XrRenderer {
             iced::mouse::Cursor::Unavailable,
         );
 
-        let mut encoder = self
-            .gpu
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("vivelite xr overlay encoder"),
-            });
-        let no_overlay: [&str; 0] = [];
-        match &mut self.renderer {
-            iced::Renderer::Primary(renderer) => renderer.present(
-                &mut self.engine,
-                &self.gpu.device,
-                &self.gpu.queue,
-                &mut encoder,
-                // Clear to transparent: the runtime alpha-blends the quad
-                // over the passthrough view, so the panel shows the scene
-                // wherever the overlay draws nothing.
-                Some(iced::Color::TRANSPARENT),
-                self.format,
-                &view,
-                &viewport,
-                &no_overlay,
-            ),
-            _ => return Err(OverlayError::RendererUnavailable),
-        }
-        // Submits the encoder on the queue the graphics binding named, so
-        // the runtime's synchronization (wired to that queue) orders the
-        // overlay's pixels before composition.
-        self.engine.submit(&self.gpu.queue, encoder);
+        // Clear to transparent: the runtime alpha-blends the quad over the
+        // passthrough view, so the panel shows the scene wherever the
+        // overlay draws nothing. `present` submits on the device's queue,
+        // the one the graphics binding named, so the runtime's
+        // synchronization orders the overlay's pixels before composition.
+        let iced::Renderer::Primary(renderer) = &mut self.renderer else {
+            return Err(OverlayError::RendererUnavailable);
+        };
+        let _submission = renderer.present(
+            Some(iced::Color::TRANSPARENT),
+            self.format,
+            &view,
+            &viewport,
+        );
         Ok(())
     }
 }
