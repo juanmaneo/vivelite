@@ -43,7 +43,7 @@ cargo xtask extract <image>  # stage SteamOS components
 cargo xtask doctor
 cargo xtask ui              # optional egui host dashboard
 cargo test --workspace
-./scripts/dev-check.sh      # build, test, enforce 100% coverage
+cargo xtask dev             # build, test, enforce 100% coverage
 ```
 
 ## Safety
@@ -59,6 +59,7 @@ face. Unsafe blocks outside `-sys` crates are banned by workspace lints
 - [x] `fex-sys`/`fex`: BT interface + unixlib dispatch, device capability model
 - [x] `monado-sys`/`monado`: OpenXR loader probe, runtime endpoint detection
 - [x] Host UI (egui): doctor dashboard and setup workflows (`cargo xtask ui`)
+- [ ] Local dev-check (`cargo xtask dev`): build, test, 100% function/line/region coverage
 - [ ] Device UI (iced): overlay compositor frontend
 - [ ] SteamOS component staging against a real Steam Frame image
 
