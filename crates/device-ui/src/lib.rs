@@ -3,14 +3,15 @@
 //! The headset's vendor runtime owns display and controller tracking; the
 //! WinlatorXR-derived APK composites this overlay into the OpenXR
 //! swapchain. The UI itself is a plain iced program ([`model`] + [`view`])
-//! that runs today in a desktop preview window and later against the
-//! compositor's swapchain images once the render path lands — the Monado
-//! wrapper's session/swapchain APIs exist, and [`compositor`] maps their
-//! events onto the overlay's phase.
+//! that runs in a desktop preview window and against the compositor's
+//! swapchain images behind the `xr` feature — [`compositor`] maps runtime
+//! events onto the overlay's phase, and [`xr`] renders each phase into the
+//! session's swapchain via wgpu.
 
 pub mod compositor;
 pub mod model;
 pub mod view;
+pub mod xr;
 
 pub use iced::Error;
 

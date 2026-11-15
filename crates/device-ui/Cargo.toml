@@ -8,15 +8,39 @@ repository.workspace = true
 
 [dependencies]
 iced = { version = "0.13", default-features = false, features = ["wgpu", "tiny-skia", "tokio"] }
+# wgpu is already in the default build graph through iced's `wgpu` backend;
+# the direct dependency types the always-on `xr` data modules (VkFormat ↔
+# texture-format mapping) and the `xr` render path.
+wgpu = "0.19"
 # Pure-data mapping of OpenXR session events onto the overlay's phase; the
 # `link` feature stays off here so the UI never needs a runtime to build.
 monado = { package = "vivelite-monado", path = "../monado", version = "0.1.1" }
 
+# The compositor render path (feature `xr`): iced's wgpu engine + the iced
+# runtime's `UserInterface` drive the overlay offscreen, pollster bridges
+# wgpu's async device request, and ash constructs the `VkImage` handle type
+# wgpu-hal expects (the same ash wgpu-hal 0.19 builds against).
+ash = { version = "0.37.3", optional = true }
+iced_wgpu = { version = "0.13", optional = true, default-features = false }
+iced_runtime = { version = "0.13", optional = true }
+pollster = { version = "0.3", optional = true }
+
 [dev-dependencies]
 tempfile = "3"
+
+[features]
+# Everything that touches a live OpenXR runtime or the GPU: opt-in like
+# hcf's `vulkan` feature, so `cargo xtask dev` and the coverage gate never
+# link device code.
+xr = ["monado/link", "ash", "iced_wgpu", "iced_runtime", "pollster"]
 
 [lints]
 workspace = true
 
 [lib]
 name = "device_ui"
+
+[[bin]]
+name = "xr-overlay"
+path = "src/bin/xr_overlay.rs"
+required-features = ["xr"]
