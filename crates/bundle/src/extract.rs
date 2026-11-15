@@ -160,15 +160,30 @@ pub fn steamos_components(out_root: &Path) -> Vec<Component> {
     let share = out_root.join("steamos/share");
     vec![
         // Wine with the ARM64EC backend and FEX built in.
-        Component { inner_path: "/usr/lib/wine".into(), dest: lib.clone() },
+        Component {
+            inner_path: "/usr/lib/wine".into(),
+            dest: lib.clone(),
+        },
         // Proton's runtime pieces referenced by toolmanifests.
-        Component { inner_path: "/usr/lib/pressure-vessel".into(), dest: lib.clone() },
+        Component {
+            inner_path: "/usr/lib/pressure-vessel".into(),
+            dest: lib.clone(),
+        },
         // FEX assets: rootfs defaults and config schema.
-        Component { inner_path: "/usr/share/fex".into(), dest: share },
+        Component {
+            inner_path: "/usr/share/fex".into(),
+            dest: share,
+        },
         // Valve's gamescope compositor, reused for the flat 2D stage.
-        Component { inner_path: "/usr/bin/gamescope".into(), dest: bin },
+        Component {
+            inner_path: "/usr/bin/gamescope".into(),
+            dest: bin.clone(),
+        },
         // The Steam client and its helper binaries.
-        Component { inner_path: "/usr/bin/steam".into(), dest: bin },
+        Component {
+            inner_path: "/usr/bin/steam".into(),
+            dest: bin,
+        },
     ]
 }
 
@@ -182,7 +197,10 @@ mod tests {
         let paths: Vec<&str> = comps.iter().map(|c| c.inner_path.as_str()).collect();
         assert!(paths.contains(&"/usr/lib/wine"));
         assert!(paths.contains(&"/usr/share/fex"));
-        assert!(paths.iter().all(|p| p.starts_with('/')), "inner paths must be absolute");
+        assert!(
+            paths.iter().all(|p| p.starts_with('/')),
+            "inner paths must be absolute"
+        );
     }
 
     #[test]

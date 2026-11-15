@@ -11,8 +11,8 @@
 use std::path::PathBuf;
 
 use monado_sys::{
-    XrInstance, XrResult, XrVersion, XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY, XR_TYPE_INSTANCE_CREATE_INFO,
-    XR_TYPE_SYSTEM_GET_INFO,
+    XrInstance, XrResult, XrVersion, XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY,
+    XR_TYPE_INSTANCE_CREATE_INFO, XR_TYPE_SYSTEM_GET_INFO,
 };
 
 /// `XR_MAKE_VERSION(major, minor, patch)` per the Khronos header:
@@ -50,7 +50,7 @@ pub fn detect_endpoint() -> RuntimeEndpoint {
         if v.ends_with(".json") {
             return RuntimeEndpoint::Loader(v);
         }
-        if v.contains(".so") {
+        if v.ends_with(".so") || v.contains(".so.") {
             return RuntimeEndpoint::Loader(v);
         }
         return RuntimeEndpoint::Socket(PathBuf::from(v));
@@ -189,17 +189,29 @@ mod tests {
     fn endpoint_detection_order() {
         std::env::remove_var("VIVELITE_XR_RUNTIME");
         std::env::remove_var("XR_RUNTIME_JSON");
-        assert_eq!(detect_endpoint(), RuntimeEndpoint::Socket(PathBuf::from("/tmp/xr-runtime")));
+        assert_eq!(
+            detect_endpoint(),
+            RuntimeEndpoint::Socket(PathBuf::from("/tmp/xr-runtime"))
+        );
 
         std::env::set_var("VIVELITE_XR_RUNTIME", "/run/my/monado.sock");
-        assert_eq!(detect_endpoint(), RuntimeEndpoint::Socket(PathBuf::from("/run/my/monado.sock")));
+        assert_eq!(
+            detect_endpoint(),
+            RuntimeEndpoint::Socket(PathBuf::from("/run/my/monado.sock"))
+        );
 
         std::env::set_var("VIVELITE_XR_RUNTIME", "/lib/libopenxr_loader.so");
-        assert_eq!(detect_endpoint(), RuntimeEndpoint::Loader("/lib/libopenxr_loader.so".into()));
+        assert_eq!(
+            detect_endpoint(),
+            RuntimeEndpoint::Loader("/lib/libopenxr_loader.so".into())
+        );
 
         std::env::remove_var("VIVELITE_XR_RUNTIME");
         std::env::set_var("XR_RUNTIME_JSON", "/etc/openxr/1/runtime/monado.json");
-        assert_eq!(detect_endpoint(), RuntimeEndpoint::Loader("libopenxr_loader.so".into()));
+        assert_eq!(
+            detect_endpoint(),
+            RuntimeEndpoint::Loader("libopenxr_loader.so".into())
+        );
 
         std::env::remove_var("VIVELITE_XR_RUNTIME");
         std::env::remove_var("XR_RUNTIME_JSON");

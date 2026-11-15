@@ -15,7 +15,8 @@
 
 use std::path::{Path, PathBuf};
 
-use vivelite_core::{device_layout, Stage};
+use bundle::{Extractor, RootfsReconstructor, SignatureVerifier};
+use vivelite_core::device_layout;
 
 mod ui;
 

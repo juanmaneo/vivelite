@@ -49,16 +49,23 @@ impl Candidate {
     /// steamac passes them to desync: the per-image store first (denser,
     /// contains everything of this build), the shared `chunks.castr` second.
     pub fn chunk_stores(&self) -> Vec<String> {
-        let stem = self.update_path.strip_suffix(".raucb").unwrap_or(&self.update_path);
+        let stem = self
+            .update_path
+            .strip_suffix(".raucb")
+            .unwrap_or(&self.update_path);
         vec![
-            format!("{}{stem}.castr/"),
+            format!("{IMAGES_BASE}{stem}.castr/"),
             format!("{}{}/", IMAGES_BASE, self.chunks_store_path),
         ]
     }
 
     /// File name of the bundle on disk.
     pub fn bundle_filename(&self) -> String {
-        self.update_path.rsplit('/').next().unwrap_or("steamos.raucb").to_string()
+        self.update_path
+            .rsplit('/')
+            .next()
+            .unwrap_or("steamos.raucb")
+            .to_string()
     }
 }
 
@@ -77,19 +84,22 @@ pub fn parse_candidates(json: &str) -> Result<Vec<Candidate>> {
     };
     let body = &json[cands_start..];
     let Some(arr) = body.find('[') else {
-        return Err(Error::Other("atomupd meta: candidates is not an array".into()));
+        return Err(Error::Other(
+            "atomupd meta: candidates is not an array".into(),
+        ));
     };
     let body = &body[arr + 1..];
     let Some(end) = body.rfind(']') else {
-        return Err(Error::Other("atomupd meta: unterminated candidates array".into()));
+        return Err(Error::Other(
+            "atomupd meta: unterminated candidates array".into(),
+        ));
     };
     let body = &body[..end];
 
     let mut out = Vec::new();
     for (start, obj) in objects(body) {
         let get = |key: &str| json_string_field(obj, key);
-        let (Some(buildid), Some(update_path)) = (get("buildid"), get("update_path"))
-        else {
+        let (Some(buildid), Some(update_path)) = (get("buildid"), get("update_path")) else {
             return Err(Error::Other(format!(
                 "atomupd meta: candidate {start} lacks buildid/update_path"
             )));
@@ -102,7 +112,9 @@ pub fn parse_candidates(json: &str) -> Result<Vec<Candidate>> {
         });
     }
     if out.is_empty() {
-        return Err(Error::Other("atomupd meta: candidates array is empty".into()));
+        return Err(Error::Other(
+            "atomupd meta: candidates array is empty".into(),
+        ));
     }
     Ok(out)
 }
@@ -201,13 +213,19 @@ mod tests {
             c.bundle_url(),
             "https://steamdeck-images.steamos.cloud/vr/20261022.6150929/deckard-stable-20261022.6150929-0.4.5.raucb"
         );
-        assert_eq!(c.bundle_filename(), "deckard-stable-20261022.6150929-0.4.5.raucb");
+        assert_eq!(
+            c.bundle_filename(),
+            "deckard-stable-20261022.6150929-0.4.5.raucb"
+        );
         let stores = c.chunk_stores();
         assert_eq!(
             stores[0],
             "https://steamdeck-images.steamos.cloud/vr/20261022.6150929/deckard-stable-20261022.6150929-0.4.5.castr/"
         );
-        assert_eq!(stores[1], "https://steamdeck-images.steamos.cloud/vr/chunks.castr/");
+        assert_eq!(
+            stores[1],
+            "https://steamdeck-images.steamos.cloud/vr/chunks.castr/"
+        );
     }
 
     #[test]

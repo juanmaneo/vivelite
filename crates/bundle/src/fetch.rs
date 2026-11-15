@@ -37,7 +37,13 @@ impl Range {
 
     /// Number of bytes this range covers, when known.
     pub fn len(self) -> Option<u64> {
-        self.end.map(|e| e.saturating_sub(self.start) + 1)
+        self.end.map(|e| {
+            if e < self.start {
+                0
+            } else {
+                e - self.start + 1
+            }
+        })
     }
 
     /// True when the range covers zero bytes.
@@ -120,11 +126,43 @@ mod tests {
 
     #[test]
     fn range_headers() {
-        assert_eq!(Range { start: 0, end: Some(9) }.header(), "bytes=0-9");
-        assert_eq!(Range { start: 1024, end: None }.header(), "bytes=1024-");
-        assert_eq!(Range { start: 0, end: Some(9) }.len(), Some(10));
-        assert_eq!(Range { start: 5, end: None }.len(), None);
-        assert!(Range { start: 3, end: Some(2) }.is_empty());
+        assert_eq!(
+            Range {
+                start: 0,
+                end: Some(9)
+            }
+            .header(),
+            "bytes=0-9"
+        );
+        assert_eq!(
+            Range {
+                start: 1024,
+                end: None
+            }
+            .header(),
+            "bytes=1024-"
+        );
+        assert_eq!(
+            Range {
+                start: 0,
+                end: Some(9)
+            }
+            .len(),
+            Some(10)
+        );
+        assert_eq!(
+            Range {
+                start: 5,
+                end: None
+            }
+            .len(),
+            None
+        );
+        assert!(Range {
+            start: 3,
+            end: Some(2)
+        }
+        .is_empty());
     }
 
     #[test]
