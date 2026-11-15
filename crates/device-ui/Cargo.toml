@@ -4,6 +4,7 @@ description = "vivelite on-device overlay UI (iced) for the SteamOS staging stat
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 iced = { version = "0.13", default-features = false, features = ["wgpu", "tiny-skia", "tokio"] }

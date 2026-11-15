@@ -4,6 +4,7 @@ description = "Raw FFI bindings to Wine's embedded C API (libwine)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 links = "wine"
 
 [dependencies]
@@ -16,3 +17,6 @@ link = []
 
 [lib]
 name = "wine_sys"
+
+[lints]
+workspace = true

@@ -4,6 +4,7 @@ description = "Raw FFI bindings to the OpenXR loader (Monado runtime)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 links = "openxr_loader"
 
 [dependencies]
@@ -15,3 +16,6 @@ link = []
 
 [lib]
 name = "monado_sys"
+
+[lints]
+workspace = true

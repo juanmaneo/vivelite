@@ -4,6 +4,7 @@ description = "vivelite build orchestrator: fetch / verify / extract / stage / d
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 bundle = { package = "vivelite-bundle", path = "../crates/bundle", version = "0.1.1" }
@@ -21,3 +22,6 @@ name = "xtask"
 [[bin]]
 name = "xtask"
 path = "src/main.rs"
+
+[lints]
+workspace = true

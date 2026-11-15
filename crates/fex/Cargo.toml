@@ -4,9 +4,13 @@ description = "Safe wrapper around FEX's Wine interfaces for vivelite"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 fex-sys = { package = "vivelite-fex-sys", path = "../fex-sys", version = "0.1.1" }
 
 [lib]
 name = "fex"
+
+[lints]
+workspace = true
