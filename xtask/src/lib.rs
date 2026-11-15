@@ -8,7 +8,7 @@
 //! Usage:
 //! ```text
 //! cargo xtask fetch <bundle-url>   # streamed, resumable download
-//! cargo xtask verify               # sha256 + CMS signature
+//! cargo xtask verify               # sha256 + CMS signature (requires VIVELITE_RAUC_KEYRING)
 //! cargo xtask extract <image>      # stage SteamOS components
 //! cargo xtask doctor               # check host + drift
 //! cargo xtask gpu-stress <case>    # HCF GPU robustness workload (opt-in)
@@ -250,8 +250,7 @@ pub fn run_with(
             if let Some(expected) = sha256 {
                 bundle::verify_file_sha256(&dest, &expected).map_err(|e| e.to_string())?;
             }
-            let verifier = bundle::RaucVerifier::default();
-            verifier.verify(&dest).map_err(|e| e.to_string())?;
+            rauc_verifier().verify(&dest).map_err(|e| e.to_string())?;
             Ok(format!("verified: {}", dest.display()))
         }
         Cmd::Extract { image } => {
@@ -287,6 +286,13 @@ pub fn doctor_report(lines: &[(bool, String)]) -> Result<String, String> {
     Ok("all checks passed".into())
 }
 
+fn rauc_verifier() -> bundle::RaucVerifier {
+    bundle::RaucVerifier {
+        keyring: std::env::var("VIVELITE_RAUC_KEYRING").ok(),
+        ..Default::default()
+    }
+}
+
 /// Full SteamOS staging pipeline against the live atomupd feed:
 /// meta → signed bundle → manifest → desync reconstruct → ext4 staging.
 ///
@@ -308,23 +314,27 @@ pub fn stage_with(files: &dyn fs::Fs, work: &Path, meta: &str) -> Result<String,
         .map_err(|e| e.to_string())?
         .pop()
         .expect("parse_candidates guarantees at least one candidate");
+    // Feed paths were validated by `parse_candidates`, so the helpers below
+    // cannot fail for a candidate that reached this point.
+    let bundle_filename = cand
+        .bundle_filename()
+        .expect("validated by parse_candidates");
     eprintln!(
         "steamOS {} ({}), bundle {}",
-        cand.version,
-        cand.buildid,
-        cand.bundle_filename()
+        cand.version, cand.buildid, bundle_filename
     );
 
     // 2. download the signed bundle.
     let bundles = fs::child(work, "bundles");
     fs::ensure_dir(files, &bundles)?;
-    let bundle_path = fs::child(&bundles, cand.bundle_filename());
+    let bundle_url = cand.bundle_url().expect("validated by parse_candidates");
+    let bundle_path = fs::child(&bundles, bundle_filename);
     if !files.exists(&bundle_path) {
-        curl("curl", &cand.bundle_url(), &bundle_path)?;
+        curl("curl", &bundle_url, &bundle_path)?;
     }
 
     // 3. verify the CMS signature against Valve's RAUC CA.
-    bundle::RaucVerifier::default()
+    rauc_verifier()
         .verify(&bundle_path)
         .map_err(|e| e.to_string())?;
 
@@ -379,7 +389,7 @@ pub fn stage_with(files: &dyn fs::Fs, work: &Path, meta: &str) -> Result<String,
     let chunk_cache = fs::child(&fs::child(work, "cache"), "desync");
     fs::ensure_dir(files, &chunk_cache)?;
     let reconstructor = bundle::DesyncReconstructor {
-        stores: cand.chunk_stores(),
+        stores: cand.chunk_stores().expect("validated by parse_candidates"),
         cache: Some(chunk_cache),
         ..Default::default()
     };
@@ -512,7 +522,22 @@ pub fn which_in(path: Option<OsString>, bin: &str) -> Option<PathBuf> {
     let path = path?;
     std::env::split_paths(&path)
         .map(|dir| dir.join(bin))
-        .find(|p| p.is_file())
+        .find(|p| {
+            if !p.is_file() {
+                return false;
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::metadata(p)
+                    .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
+                    .unwrap_or(false)
+            }
+            #[cfg(not(unix))]
+            {
+                true
+            }
+        })
 }
 
 /// The work root for bundles, staged components, and caches.
@@ -526,8 +551,8 @@ fn usage() -> &'static str {
     "vivelite xtask — build orchestrator\n\
      \n\
      cargo xtask stage [branch]        full pipeline: meta → bundle → rootfs → staged components\n\
-     cargo xtask fetch <bundle-url> [--out DIR]\n\
-     cargo xtask verify [--sha256 <hex>]\n\
+     cargo xtask fetch <bundle-url>\n\
+     cargo xtask verify [--sha256 <hex>] # requires VIVELITE_RAUC_KEYRING\n\
      cargo xtask extract <slot-image>\n\
      cargo xtask doctor\n\
      cargo xtask gpu-stress <case> [--timeout <secs>]\n\

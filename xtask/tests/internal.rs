@@ -253,7 +253,16 @@ fn gfr_probe_arm_reports_the_probe_outcome() {
 #[test]
 fn which_resolves_only_existing_files_on_path() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("tool"), "").unwrap();
+    std::fs::write(dir.path().join("tool"), "#!/bin/sh\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(
+            dir.path().join("tool"),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+    }
     let path =
         std::env::join_paths([dir.path().join("missing"), dir.path().to_path_buf()]).unwrap();
     assert_eq!(which_in(Some(path), "tool"), Some(dir.path().join("tool")));

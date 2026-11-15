@@ -88,6 +88,7 @@ for p in "$@"; do
                 incompatible) printf '[update]\ncompatible=steamos-x86\n[image.rootfs]\nfilename=rootfs.img.caibx\n' > "$target" ;;
                 no-compatible) printf '[image.rootfs]\nfilename=rootfs.img.caibx\n' > "$target" ;;
                 badmanifest) printf '[broken\n' > "$target" ;;
+                bad-filename) printf '[update]\ncompatible=steamos-aarch64\n[image.rootfs]\nfilename=../escape.caibx\n' > "$target" ;;
                 no-rootfs) printf '[update]\ncompatible=steamos-aarch64\n[image.boot]\nfilename=boot.caibx\n' > "$target" ;;
                 no-sha) printf '[update]\ncompatible=steamos-aarch64\n[image.rootfs]\nfilename=rootfs.img.caibx\n' > "$target" ;;
                 missing-caibx) printf '[update]\ncompatible=steamos-aarch64\n[image.rootfs]\nfilename=missing.caibx\n' > "$target" ;;
@@ -159,6 +160,10 @@ esac
         cmd.args(args)
             .current_dir(self.root.path())
             .env("VIVELITE_WORK", &self.work)
+            .env(
+                "VIVELITE_RAUC_KEYRING",
+                self.root.path().join("trusted-ca.pem"),
+            )
             .env("PATH", format!("{}:/usr/bin:/bin", self.tools.display()));
         cmd
     }
@@ -304,6 +309,7 @@ fn stage_success_and_manifest_failures() {
         ("incompatible", "expected steamos-aarch64"),
         ("no-compatible", "manifest lacks compatible"),
         ("no-rootfs", "manifest lacks an [image.rootfs] section"),
+        ("bad-filename", "unsafe image filename"),
         ("missing-caibx", "bundle does not carry missing.caibx"),
         ("bad-sha", "sha256 mismatch"),
     ] {
