@@ -46,6 +46,7 @@ cargo xtask extract <image>  # stage SteamOS components
 cargo xtask doctor
 cargo xtask ui              # optional egui host dashboard
 cargo xtask device-ui       # preview the iced device overlay
+cargo xtask device-ui --xr  # the overlay on the OpenXR compositor (opt-in)
 cargo xtask gpu-stress <case>   # opt-in HCF GPU robustness workload
 cargo xtask gfr-probe            # opt-in GFR marker backend probe
 cargo test --workspace
@@ -61,7 +62,7 @@ face. Unsafe blocks outside `-sys` crates are banned by workspace lints
 ## Status
 
 - [x] Local dev-check (`cargo xtask dev`): build, test, 100% function/line/region coverage. Verified with and without `DISPLAY`/`WAYLAND_DISPLAY` on Linux; window-launch tests run in child processes with those variables removed
-- [ ] Device UI (iced): overlay compositor frontend. Preview window builds and is tested headlessly (`cargo xtask device-ui`); the `monado` wrapper now carries the session/space/swapchain/frame-loop APIs and the overlay tracks the compositor phase — the wgpu-into-swapchain render path is pending
+- [ ] Device UI (iced): overlay compositor frontend. The preview window and the XR render path build and are tested headlessly (`cargo xtask device-ui`, `cargo xtask device-ui --xr`); the render path wraps the session's swapchain `VkImage`s as wgpu textures via a shared-device graphics binding — on-device validation is pending
 - [ ] SteamOS component staging against a real Steam Frame image. Layout validation and manifest writing are tested with fixtures; a real-image run is pending
 
 ## Ideas
@@ -74,9 +75,12 @@ face. Unsafe blocks outside `-sys` crates are banned by workspace lints
   (GLSL kept in-tree, translated to SPIR-V at runtime with `naga`)
 - [ ] Port more HCF cases as needed (`hang_semaphore`,
   `hang_timeline_semaphore_host`, the crash cases)
-- [ ] Render the iced overlay into OpenXR swapchain images (wgpu/Vulkan
-  external-memory import): the session/swapchain wrapper APIs and the
-  compositor phase model are in place, the pixel path is the missing piece
+- [x] Render the iced overlay into OpenXR swapchain images: the
+  `device-ui` `xr` feature creates the wgpu Vulkan device, hands its raw
+  handles to the runtime as the session's graphics binding, and renders
+  the iced program into each frame's `VkImage` wrapped as a wgpu texture
+  (`cargo xtask device-ui --xr`; opt-in, outside `dev` and the coverage
+  gate — on-device validation pending)
 - [x] Rust GFR primitives and opt-in Vulkan probe (`cargo xtask gfr-probe`):
   AMD extension backend plus a portable core-Vulkan compute-marker backend
   intended for Adreno; this is not a transparent Vulkan layer

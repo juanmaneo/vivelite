@@ -46,6 +46,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `device-ui`: compositor phase model — OpenXR session events map onto
   the overlay's attach phase, shown on the staging page; the wgpu
   render-into-swapchain path is still pending.
+- `device-ui` `xr` feature: the overlay's OpenXR render path. A wgpu
+  Vulkan instance/device is created once, its raw handles are handed to
+  the runtime as the session's graphics binding (`wgpu::as_hal`), and
+  each frame renders the iced program into the acquired swapchain
+  `VkImage` (wrapped via `wgpu::Device::create_texture_from_hal` with a
+  sentinel drop guard so wgpu never destroys the runtime's image), then
+  submits one quad layer. Always-on pure companions: `xr::format`
+  (VkFormat ↔ wgpu texture format negotiation) and `xr::plan` (per-frame
+  render/skip/detach decision), covered by the `dev` gate.
+- `cargo xtask device-ui --xr`: builds and runs the `xr-overlay` binary
+  (opt-in like `gpu-stress`, outside `dev` and the coverage gate).
 
 ### Fixed
 
