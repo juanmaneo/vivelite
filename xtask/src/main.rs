@@ -19,6 +19,7 @@ use bundle::{Extractor, RootfsReconstructor, SignatureVerifier};
 use vivelite_core::device_layout;
 
 mod dev;
+mod fs;
 mod ui;
 
 fn main() {
@@ -128,7 +129,7 @@ fn run_with(args: &[String], launch_ui: &dyn Fn() -> Result<(), String>) -> Resu
         }
         Cmd::Fetch { url } => {
             let dest = work_root().join("bundles").join("steamos.raucb");
-            std::fs::create_dir_all(dest.parent().unwrap()).map_err(|e| e.to_string())?;
+            fs::ensure_dir(&fs::RealFs, dest.parent().unwrap_or(Path::new(".")))?;
             // The download itself runs over HTTPS from the host; here we
             // delegate to curl for transport (C tool, wrapped, per project
             // rule) and verify with the bundle crate afterwards.
@@ -203,6 +204,10 @@ fn run_with(args: &[String], launch_ui: &dyn Fn() -> Result<(), String>) -> Resu
 /// 20261022.6150929, SteamOS 0.4.5): the `.raucb` is a ~2 MiB signed
 /// squashfs; the rootfs bytes come from casync chunk stores.
 fn stage(branch: &str) -> Result<String, String> {
+    stage_with(&fs::RealFs, branch)
+}
+
+fn stage_with(files: &dyn fs::Fs, branch: &str) -> Result<String, String> {
     let work = work_root();
 
     // 1. atomupd metadata: latest candidate for the branch.
@@ -220,10 +225,10 @@ fn stage(branch: &str) -> Result<String, String> {
     );
 
     // 2. download the signed bundle.
-    let bundles = work.join("bundles");
-    std::fs::create_dir_all(&bundles).map_err(|e| e.to_string())?;
-    let bundle_path = bundles.join(cand.bundle_filename());
-    if !bundle_path.exists() {
+    let bundles = fs::child(&work, "bundles");
+    fs::ensure_dir(files, &bundles)?;
+    let bundle_path = fs::child(&bundles, cand.bundle_filename());
+    if !files.exists(&bundle_path) {
         curl(&cand.bundle_url(), &bundle_path)?;
     }
 
@@ -233,8 +238,8 @@ fn stage(branch: &str) -> Result<String, String> {
         .map_err(|e| e.to_string())?;
 
     // 4. unsquashfs the manifest and the casync index out of the bundle.
-    let unpack = bundles.join(format!("{}.d", cand.buildid));
-    std::fs::create_dir_all(&unpack).map_err(|e| e.to_string())?;
+    let unpack = fs::child(&bundles, format!("{}.d", cand.buildid));
+    fs::ensure_dir(files, &unpack)?;
     bundle::SquashfsExtractor::default()
         .extract(
             &bundle_path,
@@ -250,8 +255,7 @@ fn stage(branch: &str) -> Result<String, String> {
             ],
         )
         .map_err(|e| e.to_string())?;
-    let manifest_text =
-        std::fs::read_to_string(unpack.join("manifest.raucm")).map_err(|e| e.to_string())?;
+    let manifest_text = fs::read_text(files, &fs::child(&unpack, "manifest.raucm"))?;
     let manifest = bundle::parse_manifest(&manifest_text).map_err(|e| e.to_string())?;
     let compatible = manifest
         .compatible
@@ -267,8 +271,8 @@ fn stage(branch: &str) -> Result<String, String> {
         .iter()
         .find(|i| i.slot == "rootfs")
         .ok_or("manifest lacks an [image.rootfs] section")?;
-    let caibx = unpack.join(&rootfs.filename);
-    if !caibx.exists() {
+    let caibx = fs::child(&unpack, &rootfs.filename);
+    if !files.exists(&caibx) {
         return Err(format!(
             "bundle does not carry {}; is this really a deckard RAUCB?",
             rootfs.filename
@@ -282,15 +286,15 @@ fn stage(branch: &str) -> Result<String, String> {
     );
 
     // 5. reconstruct the rootfs image from Valve's chunk stores.
-    let chunk_cache = work.join("cache").join("desync");
-    std::fs::create_dir_all(&chunk_cache).map_err(|e| e.to_string())?;
+    let chunk_cache = fs::child(&fs::child(&work, "cache"), "desync");
+    fs::ensure_dir(files, &chunk_cache)?;
     let reconstructor = bundle::DesyncReconstructor {
         stores: cand.chunk_stores(),
         cache: Some(chunk_cache),
         ..Default::default()
     };
-    let rootfs_img = work.join(format!("rootfs-{}.img", cand.buildid));
-    if !rootfs_img.exists() {
+    let rootfs_img = fs::child(&work, format!("rootfs-{}.img", cand.buildid));
+    if !files.exists(&rootfs_img) {
         let info = reconstructor.info(&caibx).map_err(|e| e.to_string())?;
         eprintln!(
             "desync: {} unique chunks, {} MiB to fetch",
@@ -308,7 +312,7 @@ fn stage(branch: &str) -> Result<String, String> {
     }
 
     // 7. stage the userspace components (debugfs, no mount, no root).
-    let staged = work.join("staged");
+    let staged = fs::child(&work, "staged");
     let components = bundle::steamos_components(&staged);
     bundle::Ext4Extractor::default()
         .extract(&rootfs_img, &components)
