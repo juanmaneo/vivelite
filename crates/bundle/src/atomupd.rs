@@ -277,4 +277,13 @@ mod tests {
         let no_quote = r#"{"candidates": [{"buildid": 1, "update_path": "x"}]}"#;
         assert!(parse_candidates(no_quote).is_err());
     }
+
+    #[test]
+    fn malformed_candidate_string_fields_are_rejected() {
+        let missing_colon = r#"{"candidates": [{"buildid":"1", "update_path"x"}]}"#;
+        assert!(parse_candidates(missing_colon).is_err());
+
+        let unterminated_value = r#"{"candidates": [{"buildid":"1", "update_path":"x}]}"#;
+        assert!(parse_candidates(unterminated_value).is_err());
+    }
 }

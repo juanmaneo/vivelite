@@ -332,6 +332,24 @@ done
     }
 
     #[test]
+    fn squashfs_extractor_reports_destination_creation_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let parent = dir.path().join("not-a-directory");
+        std::fs::write(&parent, b"file").unwrap();
+        let extractor = SquashfsExtractor::default();
+        let err = extractor
+            .extract(
+                Path::new("image.raucb"),
+                &[Component {
+                    inner_path: "/usr/bin/steam".into(),
+                    dest: parent.join("out"),
+                }],
+            )
+            .unwrap_err();
+        assert!(matches!(err, crate::Error::Io(_)));
+    }
+
+    #[test]
     fn squashfs_extractor_missing_binary_is_reported() {
         let extractor = SquashfsExtractor {
             unsquashfs_bin: Some("/nonexistent/unsquashfs".into()),
@@ -449,6 +467,62 @@ esac
         let msg = tool_error_message(err);
         assert!(msg.contains("debugfs failed"), "{msg}");
         assert!(msg.contains("kaboom"), "{msg}");
+    }
+
+    #[test]
+    fn ext4_extractor_reports_destination_creation_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let parent = dir.path().join("not-a-directory");
+        std::fs::write(&parent, b"file").unwrap();
+        let extractor = Ext4Extractor::default();
+        let err = extractor
+            .extract(
+                Path::new("rootfs.img"),
+                &[Component {
+                    inner_path: "/usr/lib/wine".into(),
+                    dest: parent.join("out"),
+                }],
+            )
+            .unwrap_err();
+        assert!(matches!(err, crate::Error::Io(_)));
+    }
+
+    #[test]
+    fn ext4_extractor_reports_request_failure_after_stat() {
+        let _guard = crate::spawn_lock();
+        let dir = tempfile::tempdir().unwrap();
+        let debugfs = fake_tool(
+            dir.path(),
+            "fake-debugfs",
+            &dir.path().join("unused.log"),
+            r#"
+req=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -R) req="$2"; shift 2 ;;
+        *) shift ;;
+    esac
+done
+case "$req" in
+    stat\ *) echo "Type: directory" ;;
+    rdump\ *) echo "extract failed" >&2; exit 1 ;;
+esac
+"#,
+        );
+        let extractor = Ext4Extractor {
+            debugfs_bin: Some(debugfs.to_string_lossy().into_owned()),
+            extra_args: Vec::new(),
+        };
+        let err = extractor
+            .extract(
+                Path::new("rootfs.img"),
+                &[Component {
+                    inner_path: "/usr/lib/wine".into(),
+                    dest: dir.path().join("out"),
+                }],
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("extract failed"));
     }
 
     #[test]

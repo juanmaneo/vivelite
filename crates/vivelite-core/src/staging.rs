@@ -89,14 +89,20 @@ pub fn validate_and_write_manifest(root: &Path) -> io::Result<StagingReport> {
 
 fn count_tree(path: &Path, report: &mut StagingReport) -> io::Result<()> {
     for entry in fs::read_dir(path)? {
-        let entry = entry?;
-        let metadata = fs::symlink_metadata(entry.path())?;
-        if metadata.is_dir() {
-            count_tree(&entry.path(), report)?;
-        } else {
-            report.files += 1;
-            report.bytes += metadata.len();
-        }
+        count_entry(entry, report)?;
+    }
+    Ok(())
+}
+
+fn count_entry(entry: io::Result<fs::DirEntry>, report: &mut StagingReport) -> io::Result<()> {
+    let entry = entry?;
+    let path = entry.path();
+    let metadata = fs::symlink_metadata(&path)?;
+    if metadata.is_dir() {
+        count_tree(&path, report)?;
+    } else {
+        report.files += 1;
+        report.bytes += metadata.len();
     }
     Ok(())
 }
@@ -105,14 +111,18 @@ fn write_manifest(root: &Path, report: &StagingReport) -> io::Result<()> {
     let manifest = root.join("stage-manifest.txt");
     let temporary = root.join("stage-manifest.txt.tmp");
     let mut file = fs::File::create(&temporary)?;
-    writeln!(file, "format=vivelite-stage-v1")?;
-    writeln!(file, "files={}", report.files)?;
-    writeln!(file, "bytes={}", report.bytes)?;
-    for component in REQUIRED_COMPONENTS {
-        writeln!(file, "component.{}={}", component.name, component.path)?;
-    }
-    file.flush()?;
+    write_manifest_contents(&mut file, report)?;
     fs::rename(temporary, manifest)
+}
+
+fn write_manifest_contents(writer: &mut impl Write, report: &StagingReport) -> io::Result<()> {
+    writeln!(writer, "format=vivelite-stage-v1")?;
+    writeln!(writer, "files={}", report.files)?;
+    writeln!(writer, "bytes={}", report.bytes)?;
+    for component in REQUIRED_COMPONENTS {
+        writeln!(writer, "component.{}={}", component.name, component.path)?;
+    }
+    writer.flush()
 }
 
 #[cfg(test)]
@@ -179,5 +189,120 @@ mod tests {
         assert_eq!(report.files, 6);
         #[cfg(not(unix))]
         assert_eq!(report.files, 5);
+    }
+
+    #[test]
+    fn tree_counting_reports_read_and_entry_errors() {
+        let temp = fixture();
+        let report = StagingReport {
+            root: temp.path().to_path_buf(),
+            files: 0,
+            bytes: 0,
+            components: REQUIRED_COMPONENTS.len(),
+        };
+        let file = temp.path().join("not-a-directory");
+        fs::write(&file, b"x").unwrap();
+        assert!(count_tree(&file, &mut report.clone()).is_err());
+
+        assert!(count_entry(Err(io::Error::other("entry failed")), &mut report.clone()).is_err());
+
+        let stale = temp.path().join("stale-entry");
+        fs::write(&stale, b"x").unwrap();
+        let entry = fs::read_dir(temp.path())
+            .unwrap()
+            .map(Result::unwrap)
+            .find(|entry| entry.path() == stale)
+            .unwrap();
+        fs::remove_file(stale).unwrap();
+        assert!(count_entry(Ok(entry), &mut report.clone()).is_err());
+    }
+
+    #[test]
+    fn manifest_write_failures_are_reported() {
+        let temp = fixture();
+        let report = StagingReport {
+            root: temp.path().to_path_buf(),
+            files: 5,
+            bytes: 27,
+            components: REQUIRED_COMPONENTS.len(),
+        };
+
+        let temporary = temp.path().join("stage-manifest.txt.tmp");
+        fs::create_dir(&temporary).unwrap();
+        assert!(write_manifest(temp.path(), &report).is_err());
+        fs::remove_dir(temporary).unwrap();
+
+        #[cfg(unix)]
+        {
+            let temporary = temp.path().join("stage-manifest.txt.tmp");
+            std::os::unix::fs::symlink("/dev/full", &temporary).unwrap();
+            let err = write_manifest(temp.path(), &report).unwrap_err();
+            assert!(err.to_string().contains("No space left"), "{err}");
+        }
+
+        struct FailingWriter {
+            writes_before_failure: usize,
+            writes: usize,
+            fail_flush: bool,
+        }
+        impl Write for FailingWriter {
+            fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+                if self.writes == self.writes_before_failure {
+                    return Err(io::Error::other("write failed"));
+                }
+                self.writes += 1;
+                Ok(buf.len())
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                if self.fail_flush {
+                    Err(io::Error::other("flush failed"))
+                } else {
+                    Ok(())
+                }
+            }
+        }
+        for writes_before_failure in 0..8 {
+            let mut writer = FailingWriter {
+                writes_before_failure,
+                writes: 0,
+                fail_flush: false,
+            };
+            assert!(write_manifest_contents(&mut writer, &report).is_err());
+        }
+        let mut writer = FailingWriter {
+            writes_before_failure: usize::MAX,
+            writes: 0,
+            fail_flush: true,
+        };
+        assert!(write_manifest_contents(&mut writer, &report).is_err());
+        let mut writer = FailingWriter {
+            writes_before_failure: usize::MAX,
+            writes: 0,
+            fail_flush: false,
+        };
+        assert!(write_manifest_contents(&mut writer, &report).is_ok());
+
+        let manifest = temp.path().join("stage-manifest.txt");
+        fs::create_dir(&manifest).unwrap();
+        assert!(write_manifest(temp.path(), &report).is_err());
+    }
+
+    #[test]
+    fn validation_reports_tree_and_manifest_failures() {
+        let temp = fixture();
+        let nested = temp.path().join("steamos/lib/wine");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&nested, fs::Permissions::from_mode(0o000)).unwrap();
+            let err = validate_and_write_manifest(temp.path()).unwrap_err();
+            fs::set_permissions(&nested, fs::Permissions::from_mode(0o755)).unwrap();
+            assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
+        }
+
+        let temp = fixture();
+        fs::create_dir(temp.path().join("stage-manifest.txt.tmp")).unwrap();
+        assert!(validate_and_write_manifest(temp.path()).is_err());
     }
 }

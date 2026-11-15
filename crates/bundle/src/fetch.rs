@@ -37,13 +37,11 @@ impl Range {
 
     /// Number of bytes this range covers, when known.
     pub fn len(self) -> Option<u64> {
-        self.end.map(|e| {
-            if e < self.start {
-                0
-            } else {
-                e - self.start + 1
-            }
-        })
+        match self.end {
+            Some(e) if e < self.start => Some(0),
+            Some(e) => Some(e - self.start + 1),
+            None => None,
+        }
     }
 
     /// True when the range covers zero bytes.
@@ -61,9 +59,18 @@ pub type Progress<'a> = &'a mut dyn FnMut(u64, Instant) -> std::io::Result<()>;
 /// connection that dropped mid-transfer.
 pub fn append_to(dest: &Path, src: &mut dyn Read, on_progress: Progress) -> Result<u64> {
     let mut out = OpenOptions::new().create(true).append(true).open(dest)?;
+    let start = out.metadata();
+    append_stream(&mut out, start, src, on_progress)
+}
+
+fn append_stream(
+    out: &mut dyn Write,
+    start: std::io::Result<std::fs::Metadata>,
+    src: &mut dyn Read,
+    on_progress: Progress,
+) -> Result<u64> {
     let mut buf = [0u8; 64 * 1024];
-    let start = out.metadata()?.len();
-    let mut written = start;
+    let mut written = start?.len();
     loop {
         let n = src.read(&mut buf)?;
         if n == 0 {
@@ -85,13 +92,27 @@ pub fn fetch_to<F>(dest: &Path, reader: F, on_progress: Progress) -> Result<u64>
 where
     F: FnOnce(u64) -> std::io::Result<Box<dyn Read>>,
 {
-    let resume_from = if dest.exists() {
-        std::fs::metadata(dest)?.len()
-    } else {
-        0
+    fetch_boxed(dest, Box::new(reader), on_progress)
+}
+
+// Non-generic so the logic is compiled once: each closure type passed to
+// `fetch_to` would otherwise get its own copy, and tests exercise only some.
+fn fetch_boxed(
+    dest: &Path,
+    reader: Box<dyn FnOnce(u64) -> std::io::Result<Box<dyn Read>> + '_>,
+    on_progress: Progress,
+) -> Result<u64> {
+    let resume_from = match std::fs::metadata(dest) {
+        Ok(meta) => meta.len(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => 0,
+        Err(e) => return Err(e.into()),
     };
     let mut src = reader(resume_from)?;
     append_to(dest, &mut src, on_progress)
+}
+
+fn no_progress(_: u64, _: Instant) -> std::io::Result<()> {
+    Ok(())
 }
 
 /// Convenience wrapper when no progress reporting is needed.
@@ -99,7 +120,7 @@ pub fn fetch_to_quiet<F>(dest: &Path, reader: F) -> Result<u64>
 where
     F: FnOnce(u64) -> std::io::Result<Box<dyn Read>>,
 {
-    fetch_to(dest, reader, &mut |_, _| Ok(()))
+    fetch_to(dest, reader, &mut no_progress)
 }
 
 /// Truncate a partially downloaded file so a retry starts over.
@@ -250,7 +271,79 @@ mod tests {
 
         // The reader factory itself failing is reported.
         let path = dir.path().join("no-reader.bin");
-        assert!(fetch_to_quiet(&path, |_| Err(std::io::Error::other("offline"))).is_err());
+        assert!(fetch_to_quiet(&path, offline_reader).is_err());
+    }
+
+    struct FakeSink {
+        flush_error: bool,
+    }
+
+    impl Write for FakeSink {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            if self.flush_error {
+                Err(std::io::Error::other("flush failed"))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    #[test]
+    fn sink_metadata_and_flush_errors_are_reported() {
+        let mut progress = |_: u64, _: Instant| -> std::io::Result<()> { Ok(()) };
+        let mut src = std::io::Cursor::new(b"x");
+        let mut sink = FakeSink { flush_error: false };
+        assert!(append_stream(
+            &mut sink,
+            Err(std::io::Error::other("metadata failed")),
+            &mut src,
+            &mut progress,
+        )
+        .is_err());
+
+        let dir = tempfile::tempdir().unwrap();
+        let empty = std::fs::File::create(dir.path().join("empty.bin")).unwrap();
+        let mut src = std::io::Cursor::new(b"x");
+        let mut sink = FakeSink { flush_error: true };
+        assert!(append_stream(&mut sink, empty.metadata(), &mut src, &mut progress).is_err());
+
+        let mut src = std::io::Cursor::new(b"x");
+        let mut sink = FakeSink { flush_error: false };
+        assert_eq!(
+            append_stream(&mut sink, empty.metadata(), &mut src, &mut progress).unwrap(),
+            1
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn self_referential_symlink_fails_before_fetching() {
+        let dir = tempfile::tempdir().unwrap();
+        let looped = dir.path().join("loop.bin");
+        std::os::unix::fs::symlink(&looped, &looped).unwrap();
+        let err = fetch_to_quiet(&looped, offline_reader).unwrap_err();
+        assert!(
+            !err.to_string().contains("offline"),
+            "metadata error must precede the reader: {err}"
+        );
+    }
+
+    fn offline_reader(_offset: u64) -> std::io::Result<Box<dyn Read>> {
+        Err(std::io::Error::other("offline"))
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn full_device_write_error_is_reported() {
+        let err = fetch_to_quiet(Path::new("/dev/full"), |_| {
+            Ok(Box::new(std::io::Cursor::new(b"x".to_vec())))
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("No space left on device"), "{err}");
     }
 
     struct FailingReader;

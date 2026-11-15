@@ -296,6 +296,7 @@ mod tests {
 
     #[test]
     fn reconstruct_rejects_a_missing_output() {
+        let _guard = crate::spawn_lock();
         let dir = tempfile::tempdir().unwrap();
         // A desync that exits successfully but produces nothing.
         let bin = dir.path().join("fake-desync-noop");
@@ -323,6 +324,17 @@ mod tests {
             err.to_string().contains("is empty after reconstruction"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn reconstruct_reports_extract_failure() {
+        let _guard = crate::spawn_lock();
+        let dir = tempfile::tempdir().unwrap();
+        let bin = fake_desync(dir.path(), "fail");
+        let err = reconstructor(&bin)
+            .reconstruct(&dir.path().join("i.caibx"), &dir.path().join("failed.img"))
+            .unwrap_err();
+        assert!(err.to_string().contains("chunk store unreachable"));
     }
 
     #[test]

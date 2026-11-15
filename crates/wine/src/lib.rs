@@ -207,4 +207,15 @@ mod tests {
         std::fs::write(dir.join("drive_c/users"), b"file").unwrap();
         assert!(Prefix::open(&dir).is_err());
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn skeleton_reports_registry_write_failure() {
+        let dir = tempfile_dir();
+        std::fs::create_dir_all(&dir).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(dir.join("missing/user.reg"), dir.join("user.reg")).unwrap();
+        let prefix = Prefix { root: dir.clone() };
+        assert!(prefix.create_skeleton().is_err());
+    }
 }
