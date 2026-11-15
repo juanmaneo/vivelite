@@ -31,11 +31,15 @@ pub fn view(overlay: &Overlay) -> Element<'_, Message> {
         .width(Length::Fill)
         .height(Length::Fill)
         .padding(24)
-        .style(|_theme| container::Style {
-            background: Some(OVERLAY_BACKGROUND.into()),
-            ..Default::default()
-        })
+        .style(overlay_background)
         .into()
+}
+
+fn overlay_background(_theme: &iced::Theme) -> container::Style {
+    container::Style {
+        background: Some(OVERLAY_BACKGROUND.into()),
+        ..Default::default()
+    }
 }
 
 fn staging_page(overlay: &Overlay) -> Element<'_, Message> {
@@ -106,6 +110,19 @@ mod tests {
             },
         ];
         let _ = view(&overlay);
+    }
+
+    #[test]
+    fn doctor_page_without_checks_shows_placeholder() {
+        let mut overlay = Overlay::new();
+        overlay.page = Page::Doctor;
+        let _ = view(&overlay);
+    }
+
+    #[test]
+    fn overlay_background_is_translucent_black() {
+        let style = overlay_background(&iced::Theme::Dark);
+        assert_eq!(style.background, Some(OVERLAY_BACKGROUND.into()));
     }
 
     #[test]

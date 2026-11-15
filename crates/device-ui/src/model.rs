@@ -127,13 +127,6 @@ impl Overlay {
             Message::Tick => false,
         }
     }
-
-    /// Convenience constructor used by tests and the desktop preview.
-    pub fn with_checks(checks: Vec<Check>) -> Self {
-        let mut overlay = Self::new();
-        overlay.checks = checks;
-        overlay
-    }
 }
 
 impl Default for Overlay {
@@ -209,6 +202,18 @@ mod tests {
         assert!(!overlay.update(Message::Checks(vec![check("curl", true)])));
         assert!(overlay.update(Message::Checks(vec![check("curl", false)])));
         assert_eq!(overlay.checks[0].ok, false);
+    }
+
+    #[test]
+    fn repeated_stage_failure_is_not_a_change() {
+        let mut overlay = Overlay::new();
+        assert!(overlay.update(Message::StageFailed("boom".into())));
+        assert!(!overlay.update(Message::StageFailed("boom".into())));
+    }
+
+    #[test]
+    fn default_matches_new() {
+        assert_eq!(Overlay::default(), Overlay::new());
     }
 
     #[test]

@@ -7,7 +7,6 @@ license.workspace = true
 
 [dependencies]
 iced = { version = "0.13", default-features = false, features = ["wgpu", "tiny-skia", "tokio"] }
-vivelite-core = { path = "../vivelite-core" }
 
 [dev-dependencies]
 tempfile = "3"
