@@ -88,7 +88,12 @@ impl DesyncReconstructor {
         args
     }
 
-    fn run(&self, sub: &str, positional: &[std::ffi::OsString], tool: &'static str) -> Result<std::process::Output> {
+    fn run(
+        &self,
+        sub: &str,
+        positional: &[std::ffi::OsString],
+        tool: &'static str,
+    ) -> Result<std::process::Output> {
         let mut cmd = Command::new(self.desync_bin.as_deref().unwrap_or("desync"));
         cmd.arg(sub).args(self.args(positional));
         let out = cmd.output().map_err(|e| Error::Tool {
@@ -128,10 +133,12 @@ impl RootfsReconstructor for DesyncReconstructor {
             ],
             "desync",
         )?;
-        let got = std::fs::metadata(out_path).map_err(|e| Error::Other(format!(
-            "desync did not produce {}: {e}",
-            out_path.display()
-        )))?;
+        let got = std::fs::metadata(out_path).map_err(|e| {
+            Error::Other(format!(
+                "desync did not produce {}: {e}",
+                out_path.display()
+            ))
+        })?;
         if got.len() == 0 {
             return Err(Error::Other(format!(
                 "{} is empty after reconstruction",
@@ -168,6 +175,8 @@ mod tests {
         assert_eq!(info.dedup_bytes, 2_939_889_664);
         assert_eq!(json_u64(j, "size"), Some(10_737_418_240));
         assert_eq!(json_u64(j, "missing"), None);
+        assert_eq!(json_u64("{\"k\" 1}", "k"), None);
+        assert_eq!(json_u64("{\"k\": nope}", "k"), None);
     }
 
     #[test]
@@ -175,5 +184,166 @@ mod tests {
         let r = DesyncReconstructor::default();
         assert_eq!(r.concurrency, 16);
         assert!(r.stores.is_empty());
+    }
+
+    /// Fake `desync`: records argv; `mode` bakes in a scenario (`ok`,
+    /// `noinfo`, `empty`, `fail`) so parallel tests never share state.
+    fn fake_desync(dir: &std::path::Path, mode: &str) -> String {
+        let path = dir.join("fake-desync");
+        let info_action = if mode == "noinfo" {
+            "echo '{\"dedup-size-not-in-seed\": 123}'"
+        } else {
+            "echo '{\"unique\": 44926, \"dedup-size-not-in-seed\": 2939889664}'"
+        };
+        let extra = match mode {
+            "ok" => "\n[ \"$1\" = extract ] && printf 'rootfs-bytes' > \"$out\"",
+            "noinfo" => "",
+            "empty" => "\n[ \"$1\" = extract ] && : > \"$out\"",
+            "fail" => "\necho 'chunk store unreachable' >&2\nexit 9",
+            other => panic!("unknown fake desync mode: {other}"),
+        };
+        std::fs::write(
+            &path,
+            format!(
+                "#!/bin/sh\necho \"$@\" >> '{log}'\nout=''\nfor arg in \"$@\"; do out=\"$arg\"; done\ncase \"$1\" in\n    info) {info_action} ;;\n    extract) : ;;\nesac\n{extra}\nexit 0\n",
+                log = dir.join("desync.log").display(),
+            ),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        path.to_string_lossy().into_owned()
+    }
+
+    fn reconstructor(bin: &str) -> DesyncReconstructor {
+        DesyncReconstructor {
+            desync_bin: Some(bin.into()),
+            stores: vec!["https://store.example/castr/".into()],
+            cache: None,
+            concurrency: 4,
+        }
+    }
+
+    #[test]
+    fn info_parses_the_fake_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = fake_desync(dir.path(), "ok");
+        let caibx = dir.path().join("rootfs.img.caibx");
+        std::fs::write(&caibx, b"index").unwrap();
+        let info = reconstructor(&bin).info(&caibx).unwrap();
+        assert_eq!(info.unique_chunks, 44_926);
+        assert_eq!(info.dedup_bytes, 2_939_889_664);
+        // Flags come before positionals, stores after the global flags.
+        let calls = std::fs::read_to_string(dir.path().join("desync.log")).unwrap();
+        assert!(calls.contains("--concurrency 4"), "{calls}");
+        assert!(calls.contains("--error-retry 10"), "{calls}");
+        assert!(
+            calls.contains("--store https://store.example/castr/"),
+            "{calls}"
+        );
+        assert!(calls.contains("info --concurrency 4"), "{calls}");
+    }
+
+    #[test]
+    fn cache_flag_is_passed_when_configured() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = fake_desync(dir.path(), "ok");
+        let cache = dir.path().join("cache");
+        let r = DesyncReconstructor {
+            desync_bin: Some(bin.clone()),
+            cache: Some(cache.clone()),
+            ..reconstructor(&bin)
+        };
+        let caibx = dir.path().join("i.caibx");
+        std::fs::write(&caibx, b"index").unwrap();
+        r.info(&caibx).unwrap();
+        let calls = std::fs::read_to_string(dir.path().join("desync.log")).unwrap();
+        assert!(
+            calls.contains(&format!("--cache {}", cache.display())),
+            "{calls}"
+        );
+    }
+
+    #[test]
+    fn info_reports_missing_unique_field() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = fake_desync(dir.path(), "noinfo");
+        let caibx = dir.path().join("i.caibx");
+        std::fs::write(&caibx, b"index").unwrap();
+        let err = reconstructor(&bin).info(&caibx).unwrap_err();
+        assert!(err.to_string().contains("missing \"unique\""), "{err}");
+    }
+
+    #[test]
+    fn reconstruct_writes_and_validates_the_image() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = fake_desync(dir.path(), "ok");
+        let caibx = dir.path().join("i.caibx");
+        std::fs::write(&caibx, b"index").unwrap();
+        let out = dir.path().join("rootfs.img");
+        reconstructor(&bin).reconstruct(&caibx, &out).unwrap();
+        assert_eq!(std::fs::read(&out).unwrap(), b"rootfs-bytes");
+        let calls = std::fs::read_to_string(dir.path().join("desync.log")).unwrap();
+        assert!(calls.contains("--print-stats"), "{calls}");
+    }
+
+    #[test]
+    fn reconstruct_rejects_a_missing_output() {
+        let dir = tempfile::tempdir().unwrap();
+        // A desync that exits successfully but produces nothing.
+        let bin = dir.path().join("fake-desync-noop");
+        std::fs::write(&bin, "#!/bin/sh\nexit 0").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let err = reconstructor(&bin.to_string_lossy())
+            .reconstruct(&dir.path().join("i.caibx"), &dir.path().join("gone.img"))
+            .unwrap_err();
+        assert!(err.to_string().contains("did not produce"), "{err}");
+    }
+
+    #[test]
+    fn reconstruct_rejects_an_empty_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = fake_desync(dir.path(), "empty");
+        let err = reconstructor(&bin)
+            .reconstruct(&dir.path().join("i.caibx"), &dir.path().join("empty.img"))
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("is empty after reconstruction"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn tool_failure_carries_stderr() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = fake_desync(dir.path(), "fail");
+        let err = reconstructor(&bin)
+            .info(&dir.path().join("i.caibx"))
+            .unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("desync failed"), "{msg}");
+        assert!(msg.contains("chunk store unreachable"), "{msg}");
+    }
+
+    #[test]
+    #[should_panic(expected = "unknown fake desync mode")]
+    fn fake_desync_rejects_unknown_mode() {
+        let dir = tempfile::tempdir().unwrap();
+        let _ = fake_desync(dir.path(), "invalid");
+    }
+
+    #[test]
+    fn missing_binary_is_reported() {
+        let err = reconstructor("/nonexistent/desync")
+            .info(Path::new("i.caibx"))
+            .unwrap_err();
+        assert!(err.to_string().contains("could not run desync"), "{err}");
     }
 }

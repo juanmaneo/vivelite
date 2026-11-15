@@ -240,4 +240,33 @@ mod tests {
     fn rejects_documents_without_candidates() {
         assert!(parse_candidates("{\"major\": {}}").is_err());
     }
+
+    #[test]
+    fn rejects_malformed_candidates_shapes() {
+        assert!(parse_candidates("{\"candidates\": null}")
+            .unwrap_err()
+            .to_string()
+            .contains("not an array"));
+        assert!(parse_candidates("{\"candidates\": [")
+            .unwrap_err()
+            .to_string()
+            .contains("unterminated"));
+        assert!(parse_candidates("{\"candidates\": []}")
+            .unwrap_err()
+            .to_string()
+            .contains("empty"));
+        assert!(parse_candidates("{\"candidates\": [{}]}")
+            .unwrap_err()
+            .to_string()
+            .contains("lacks buildid/update_path"));
+    }
+
+    #[test]
+    fn objects_scanner_tolerates_stray_closing_braces() {
+        let parsed =
+            parse_candidates(r#"{"candidates": [} {"buildid":"b1","update_path":"b.raucb"}] }"#)
+                .unwrap();
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].buildid, "b1");
+    }
 }

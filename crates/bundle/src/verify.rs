@@ -49,7 +49,10 @@ pub fn verify_file_sha256(path: &Path, expected: &str) -> Result<()> {
     if actual == expected_norm {
         Ok(())
     } else {
-        Err(Error::ChecksumMismatch { expected: expected_norm, actual })
+        Err(Error::ChecksumMismatch {
+            expected: expected_norm,
+            actual,
+        })
     }
 }
 
@@ -89,7 +92,11 @@ impl SignatureVerifier for RaucVerifier {
         if out.status.success() {
             Ok(())
         } else {
-            Err(Error::Tool { tool: "rauc", status: out.status, stderr: String::from_utf8_lossy(&out.stderr).into_owned() })
+            Err(Error::Tool {
+                tool: "rauc",
+                status: out.status,
+                stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+            })
         }
     }
 }
@@ -99,12 +106,18 @@ impl SignatureVerifier for RaucVerifier {
 pub struct OpensslVerifier {
     /// Path to the trusted CA bundle (Valve's public certificate).
     pub ca_file: Option<String>,
+    /// Path to `openssl`; defaults to `openssl` on PATH.
+    pub openssl_bin: Option<String>,
 }
 
 impl SignatureVerifier for OpensslVerifier {
     fn verify(&self, bundle: &Path) -> Result<()> {
-        let mut cmd = Command::new("openssl");
-        cmd.arg("cms").arg("-verify").arg("-binary").arg("-in").arg(bundle);
+        let mut cmd = Command::new(self.openssl_bin.as_deref().unwrap_or("openssl"));
+        cmd.arg("cms")
+            .arg("-verify")
+            .arg("-binary")
+            .arg("-in")
+            .arg(bundle);
         if let Some(ca) = &self.ca_file {
             cmd.arg("-CAfile").arg(ca);
         } else {
@@ -118,7 +131,11 @@ impl SignatureVerifier for OpensslVerifier {
         if out.status.success() {
             Ok(())
         } else {
-            Err(Error::Tool { tool: "openssl", status: out.status, stderr: String::from_utf8_lossy(&out.stderr).into_owned() })
+            Err(Error::Tool {
+                tool: "openssl",
+                status: out.status,
+                stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+            })
         }
     }
 }
@@ -126,6 +143,7 @@ impl SignatureVerifier for OpensslVerifier {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     #[test]
     fn known_sha256_vector() {
@@ -152,7 +170,102 @@ mod tests {
         std::fs::write(&p, b"steamos").unwrap();
         let sum = sha256_file(&p).unwrap();
         assert!(verify_file_sha256(&p, &sum).is_ok());
-        assert!(verify_file_sha256(&p, &sum.to_uppercase()).is_ok(), "case-insensitive");
+        assert!(
+            verify_file_sha256(&p, &sum.to_uppercase()).is_ok(),
+            "case-insensitive"
+        );
         assert!(verify_file_sha256(&p, "00").is_err());
+        assert!(sha256_file(&dir.path().join("missing")).is_err());
+    }
+
+    fn fake_verifier_tool(dir: &Path, name: &str, body: &str) -> PathBuf {
+        let path = dir.join(name);
+        std::fs::write(
+            &path,
+            format!("#!/bin/sh\necho \"$@\" >> '{}.log'\n{body}", path.display()),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        path
+    }
+
+    #[test]
+    fn rauc_verifier_success_failure_and_spawn_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let bundle = dir.path().join("bundle.raucb");
+        std::fs::write(&bundle, b"signed bundle").unwrap();
+        let success = fake_verifier_tool(dir.path(), "rauc-ok", "exit 0");
+        RaucVerifier {
+            rauc_bin: Some(success.to_string_lossy().into_owned()),
+        }
+        .verify(&bundle)
+        .unwrap();
+        let calls = std::fs::read_to_string(dir.path().join("rauc-ok.log")).unwrap();
+        assert!(calls.contains("status --output-format=json"), "{calls}");
+        assert!(calls.contains("bundle.raucb"), "{calls}");
+
+        let failure = fake_verifier_tool(dir.path(), "rauc-fail", "echo invalid >&2; exit 2");
+        let err = RaucVerifier {
+            rauc_bin: Some(failure.to_string_lossy().into_owned()),
+        }
+        .verify(&bundle)
+        .unwrap_err();
+        assert!(err.to_string().contains("invalid"), "{err}");
+
+        let err = RaucVerifier {
+            rauc_bin: Some("/nonexistent/rauc".into()),
+        }
+        .verify(&bundle)
+        .unwrap_err();
+        assert!(err.to_string().contains("could not run rauc"), "{err}");
+    }
+
+    #[test]
+    fn openssl_verifier_success_ca_file_failure_and_spawn_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let bundle = dir.path().join("bundle.raucb");
+        std::fs::write(&bundle, b"signed bundle").unwrap();
+
+        let noverify = fake_verifier_tool(dir.path(), "openssl-noverify", "exit 0");
+        OpensslVerifier {
+            ca_file: None,
+            openssl_bin: Some(noverify.to_string_lossy().into_owned()),
+        }
+        .verify(&bundle)
+        .unwrap();
+        let calls = std::fs::read_to_string(dir.path().join("openssl-noverify.log")).unwrap();
+        assert!(calls.contains("cms -verify -binary -in"), "{calls}");
+        assert!(calls.contains("-noverify"), "{calls}");
+
+        let cafile = fake_verifier_tool(dir.path(), "openssl-cafile", "exit 0");
+        OpensslVerifier {
+            ca_file: Some("/etc/ssl/valve-ca.pem".into()),
+            openssl_bin: Some(cafile.to_string_lossy().into_owned()),
+        }
+        .verify(&bundle)
+        .unwrap();
+        let calls = std::fs::read_to_string(dir.path().join("openssl-cafile.log")).unwrap();
+        assert!(calls.contains("-CAfile /etc/ssl/valve-ca.pem"), "{calls}");
+
+        let failure = fake_verifier_tool(dir.path(), "openssl-fail", "echo bad-cms >&2; exit 2");
+        let err = OpensslVerifier {
+            ca_file: None,
+            openssl_bin: Some(failure.to_string_lossy().into_owned()),
+        }
+        .verify(&bundle)
+        .unwrap_err();
+        assert!(err.to_string().contains("bad-cms"), "{err}");
+
+        let err = OpensslVerifier {
+            ca_file: None,
+            openssl_bin: Some("/nonexistent/openssl".into()),
+        }
+        .verify(&bundle)
+        .unwrap_err();
+        assert!(err.to_string().contains("could not run openssl"), "{err}");
     }
 }

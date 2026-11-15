@@ -193,6 +193,24 @@ mod tests {
     }
 
     #[test]
+    fn fresh_fetch_starts_at_zero() {
+        let path = tmp("fresh.bin");
+        let n = fetch_to_quiet(&path, |offset| {
+            assert_eq!(offset, 0);
+            Ok(Box::new(std::io::Cursor::new(b"fresh".to_vec())))
+        })
+        .unwrap();
+        assert_eq!(n, 5);
+        assert_eq!(std::fs::read(&path).unwrap(), b"fresh");
+    }
+
+    #[test]
+    fn io_error_helper_adds_context() {
+        let err = io_err("download")(std::io::Error::other("offline"));
+        assert!(err.to_string().contains("download: offline"));
+    }
+
+    #[test]
     fn progress_can_abort() {
         let path = tmp("abort.bin");
         let mut r = std::io::Cursor::new(vec![0u8; 128 * 1024]);

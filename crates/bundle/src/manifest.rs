@@ -44,22 +44,28 @@ pub fn parse_manifest(text: &str) -> Result<Manifest> {
             continue;
         }
         if line.starts_with('[') {
-            let end = line
-                .find(']')
-                .ok_or_else(|| Error::BadManifest(format!("line {}: unterminated section", lineno + 1)))?;
+            let end = line.find(']').ok_or_else(|| {
+                Error::BadManifest(format!("line {}: unterminated section", lineno + 1))
+            })?;
             section = line[1..end].trim().to_string();
             if section.is_empty() {
-                return Err(Error::BadManifest(format!("line {}: empty section name", lineno + 1)));
+                return Err(Error::BadManifest(format!(
+                    "line {}: empty section name",
+                    lineno + 1
+                )));
             }
             continue;
         }
-        let eq = line
-            .find('=')
-            .ok_or_else(|| Error::BadManifest(format!("line {}: expected key = value", lineno + 1)))?;
+        let eq = line.find('=').ok_or_else(|| {
+            Error::BadManifest(format!("line {}: expected key = value", lineno + 1))
+        })?;
         let key = line[..eq].trim();
         let value = line[eq + 1..].trim();
         if key.is_empty() {
-            return Err(Error::BadManifest(format!("line {}: empty key", lineno + 1)));
+            return Err(Error::BadManifest(format!(
+                "line {}: empty key",
+                lineno + 1
+            )));
         }
         if section == "update" && key == "compatible" {
             m.compatible = Some(value.to_string());
@@ -92,9 +98,9 @@ pub fn parse_manifest(text: &str) -> Result<Manifest> {
                     }
                 }
                 "size" => {
-                    let size: u64 = value
-                        .parse()
-                        .map_err(|_| Error::BadManifest(format!("line {}: bad size", lineno + 1)))?;
+                    let size: u64 = value.parse().map_err(|_| {
+                        Error::BadManifest(format!("line {}: bad size", lineno + 1))
+                    })?;
                     let img = m.images.iter_mut().find(|i| i.slot == slot);
                     match img {
                         Some(i) => i.size = Some(size),
@@ -106,10 +112,13 @@ pub fn parse_manifest(text: &str) -> Result<Manifest> {
                         }),
                     }
                 }
-                _ => m.other.push((section.clone(), key.to_string(), value.to_string())),
+                _ => m
+                    .other
+                    .push((section.clone(), key.to_string(), value.to_string())),
             }
         } else {
-            m.other.push((section.clone(), key.to_string(), value.to_string()));
+            m.other
+                .push((section.clone(), key.to_string(), value.to_string()));
         }
     }
     Ok(m)
@@ -160,6 +169,49 @@ size=104857600
     #[test]
     fn keeps_unknown_keys() {
         let m = parse_manifest("[hooks]\nfilename=post-install\n").unwrap();
-        assert_eq!(m.other, vec![("hooks".into(), "filename".into(), "post-install".into())]);
+        assert_eq!(
+            m.other,
+            vec![("hooks".into(), "filename".into(), "post-install".into())]
+        );
+    }
+
+    #[test]
+    fn handles_image_fields_in_any_order_and_rejects_bad_values() {
+        let m =
+            parse_manifest("[image.core]\nsha256=abc\nsize=9\nfilename=core.img\nextra=value\n")
+                .unwrap();
+        assert_eq!(m.images.len(), 1);
+        assert_eq!(m.images[0].filename, "core.img");
+        assert_eq!(m.images[0].sha256.as_deref(), Some("abc"));
+        assert_eq!(m.images[0].size, Some(9));
+        assert_eq!(
+            m.other,
+            vec![("image.core".into(), "extra".into(), "value".into())]
+        );
+
+        let reverse =
+            parse_manifest("[image.boot]\nfilename=boot.img\nsha256=def\nsize=10\n").unwrap();
+        assert_eq!(reverse.images[0].sha256.as_deref(), Some("def"));
+        assert_eq!(reverse.images[0].size, Some(10));
+
+        let size_first = parse_manifest("[image.data]\nsize=12\n").unwrap();
+        assert_eq!(size_first.images[0].filename, "");
+        assert_eq!(size_first.images[0].size, Some(12));
+    }
+
+    #[test]
+    fn rejects_empty_sections_keys_and_invalid_sizes() {
+        assert!(parse_manifest("[]")
+            .unwrap_err()
+            .to_string()
+            .contains("empty section"));
+        assert!(parse_manifest("[x]\n=value")
+            .unwrap_err()
+            .to_string()
+            .contains("empty key"));
+        assert!(parse_manifest("[image.x]\nsize=bad")
+            .unwrap_err()
+            .to_string()
+            .contains("bad size"));
     }
 }
