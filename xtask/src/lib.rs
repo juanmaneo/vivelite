@@ -217,23 +217,13 @@ pub fn run_with(
         Cmd::GpuStress { case, timeout_secs } => gpu::run(cargo_bin, &case, timeout_secs),
         Cmd::GfrProbe { backend } => gfr_probe::run(cargo_bin, backend),
         Cmd::Fetch { url } => {
+            require_https(&url)?;
             let dest = work_root().join("bundles").join("steamos.raucb");
             fs::ensure_dir(&fs::RealFs, dest.parent().unwrap_or(Path::new(".")))?;
             // The download itself runs over HTTPS from the host; here we
             // delegate to curl for transport (C tool, wrapped, per project
             // rule) and verify with the bundle crate afterwards.
-            let out = run_curl(
-                "curl",
-                &[
-                    "--continue-at".into(),
-                    "-".into(),
-                    "--fail".into(),
-                    "--location".into(),
-                    "--output".into(),
-                    dest.display().to_string(),
-                    url.clone(),
-                ],
-            )?;
+            let out = run_curl("curl", &download_args(&url, &dest))?;
             if !out.status.success() {
                 return Err("download failed".into());
             }
@@ -440,16 +430,9 @@ pub fn read_manifest(files: &dyn fs::Fs, unpack: &Path) -> Result<bundle::Manife
 
 /// Small text fetch via curl (transport stays a wrapped C tool).
 fn fetch_text(url: &str) -> Result<String, String> {
-    let out = run_curl(
-        "curl",
-        &[
-            "--fail".into(),
-            "--location".into(),
-            "--silent".into(),
-            "--show-error".into(),
-            url.into(),
-        ],
-    )?;
+    let mut args = https_curl_args(url);
+    args.extend(["--silent".into(), "--show-error".into()]);
+    let out = run_curl("curl", &args)?;
     if !out.status.success() {
         return Err(format!(
             "could not fetch {url}: {}",
@@ -457,6 +440,47 @@ fn fetch_text(url: &str) -> Result<String, String> {
         ));
     }
     String::from_utf8(out.stdout).map_err(|e| format!("non-utf8 response from {url}: {e}"))
+}
+
+/// Rejects anything but an `https://` URL before it reaches curl.
+pub fn require_https(url: &str) -> Result<(), String> {
+    match url.strip_prefix("https://") {
+        Some(rest) if !rest.is_empty() && !rest.starts_with('/') => Ok(()),
+        _ => Err(format!("refusing non-https URL {url:?}")),
+    }
+}
+
+/// curl options shared by every transport call: https only (including
+/// across redirects), fail on HTTP errors, follow redirects, and a hard
+/// time limit. The `--` ends options so the URL can never be parsed as a flag.
+fn https_curl_args(url: &str) -> Vec<String> {
+    [
+        "--proto",
+        "=https",
+        "--proto-redir",
+        "=https",
+        "--max-time",
+        "21600",
+        "--fail",
+        "--location",
+        "--",
+    ]
+    .iter()
+    .map(|arg| (*arg).to_string())
+    .chain(std::iter::once(url.to_string()))
+    .collect()
+}
+
+/// curl arguments for a resumable download of `url` to `dest`.
+fn download_args(url: &str, dest: &Path) -> Vec<String> {
+    let mut args = vec![
+        "--continue-at".to_string(),
+        "-".to_string(),
+        "--output".to_string(),
+        dest.display().to_string(),
+    ];
+    args.extend(https_curl_args(url));
+    args
 }
 
 /// Spawns curl for transport (C tool, wrapped per the project rule). The
@@ -470,18 +494,8 @@ pub fn run_curl(program: &str, args: &[String]) -> Result<std::process::Output, 
 
 /// Downloads `url` to `dest` through curl (resumable, fail-fast).
 pub fn curl(program: &str, url: &str, dest: &Path) -> Result<(), String> {
-    let out = run_curl(
-        program,
-        &[
-            "--continue-at".into(),
-            "-".into(),
-            "--fail".into(),
-            "--location".into(),
-            "--output".into(),
-            dest.display().to_string(),
-            url.into(),
-        ],
-    )?;
+    require_https(url)?;
+    let out = run_curl(program, &download_args(url, dest))?;
     if !out.status.success() {
         return Err(format!("download failed: {url}"));
     }

@@ -74,6 +74,22 @@ impl Candidate {
     }
 }
 
+/// `buildid` and `version` become host directory and file names, so they
+/// must be a single plain path component.
+fn validate_component(value: &str, what: &str) -> Result<()> {
+    let invalid = value.is_empty()
+        || value == "."
+        || value == ".."
+        || value.contains(['/', '\\', ':', '?', '#', '%'])
+        || value.chars().any(char::is_control);
+    if invalid {
+        return Err(Error::Other(format!(
+            "atomupd meta: unsafe {what} {value:?}"
+        )));
+    }
+    Ok(())
+}
+
 fn validate_feed_path(path: &str) -> Result<()> {
     let invalid = path.is_empty()
         || path.starts_with('/')
@@ -126,11 +142,16 @@ pub fn parse_candidates(json: &str) -> Result<Vec<Candidate>> {
         };
         let chunks_store_path =
             get("chunks_store_path").unwrap_or_else(|| "vr/chunks.castr".into());
+        validate_component(&buildid, "buildid")?;
         validate_feed_path(&update_path)?;
         validate_feed_path(&chunks_store_path)?;
+        let version = get("version").unwrap_or_default();
+        if !version.is_empty() {
+            validate_component(&version, "version")?;
+        }
         out.push(Candidate {
             buildid,
-            version: get("version").unwrap_or_default(),
+            version,
             update_path,
             chunks_store_path,
         });
@@ -243,6 +264,15 @@ mod tests {
         }
         let json = r#"{"candidates":[{"buildid":"1","update_path":"vr/good.raucb","chunks_store_path":"../../evil"}]}"#;
         assert!(parse_candidates(json).is_err());
+        for (buildid, version) in [("../../x", "0.4.5"), ("1", "../x"), ("", "0.4.5")] {
+            let json = format!(
+                r#"{{"candidates":[{{"buildid":"{buildid}","version":"{version}","update_path":"vr/good.raucb"}}]}}"#
+            );
+            assert!(
+                parse_candidates(&json).is_err(),
+                "accepted {buildid:?}/{version:?}"
+            );
+        }
     }
 
     #[test]

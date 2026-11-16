@@ -7,7 +7,7 @@ use std::path::Path;
 use xtask::fs::{self, Fs, RealFs};
 use xtask::{
     curl, doctor_report, launch_device_overlay, launch_device_overlay_with, parse, read_manifest,
-    run_curl, run_with, stage_with, which_in, Cmd,
+    require_https, run_curl, run_with, stage_with, which_in, Cmd,
 };
 
 #[test]
@@ -279,6 +279,43 @@ fn curl_reports_spawn_failure_before_download() {
     )
     .unwrap_err();
     assert!(err.contains("could not run curl"), "{err}");
+}
+
+#[test]
+fn require_https_accepts_only_https_urls() {
+    assert!(require_https("https://example.com/a.raucb").is_ok());
+    for bad in [
+        "http://example.com/a.raucb",
+        "--config=/tmp/x",
+        "file:///etc/passwd",
+        "https://",
+        "https:///path",
+        "",
+    ] {
+        assert!(require_https(bad).is_err(), "accepted {bad:?}");
+    }
+}
+
+#[test]
+fn fetch_command_refuses_plain_http_before_spawning() {
+    let ok = || Ok(());
+    let err = run_with(
+        &["fetch".into(), "http://example.com/a.raucb".into()],
+        &ok,
+        &ok,
+        "cargo",
+    )
+    .unwrap_err();
+    assert!(err.contains("refusing non-https URL"), "{err}");
+}
+
+#[test]
+fn curl_fetch_refuses_non_https_before_spawning() {
+    let dir = tempfile::tempdir().unwrap();
+    let dest = dir.path().join("out");
+    let err = curl("/nonexistent/vivelite-curl", "--config=/tmp/x", &dest).unwrap_err();
+    assert!(err.contains("refusing non-https URL"), "{err}");
+    assert!(!dest.exists());
 }
 
 #[test]
