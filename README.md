@@ -65,6 +65,7 @@ face. Unsafe blocks outside `-sys` crates are banned by workspace lints
 - [ ] Device UI (iced): overlay compositor frontend. The preview window and the XR render path build and are tested headlessly (`cargo xtask device-ui`, `cargo xtask device-ui --xr`); the render path wraps the session's swapchain `VkImage`s as wgpu textures via a shared-device graphics binding — on-device validation is pending
 - [ ] SteamOS component staging against a real Steam Frame image. Layout validation and manifest writing are tested with fixtures; a real-image run is pending. Requires `VIVELITE_RAUC_KEYRING` (Valve's RAUC CA) to verify bundles; verification fails closed without it
 - [x] Dependabot `lru` advisory (RUSTSEC, `IterMut` soundness, fixed in 0.16.3): cleared by the iced 0.14 upgrade; `lru` now resolves to 0.16.4 through `cryoglyph`
+- [ ] `lru` 0.16.4 is flagged by `cargo audit` as unsound (RUSTSEC-2026-0253, `LruCache::pop()` panic-safety use-after-free, fixed in 0.18.2). `cryoglyph` 0.1.0 pins `lru = "0.16"`, so the fix needs a `cryoglyph`/iced_wgpu update or a local patch
 
 ## Ideas
 

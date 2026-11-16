@@ -21,7 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- `device-ui`: the iced 0.14 upgrade clears the `lru` `IterMut` soundness advisory (RUSTSEC, fixed in 0.16.3); `lru` now resolves to 0.16.4.
+- `device-ui`: the iced 0.14 upgrade clears the `lru` `IterMut` soundness advisory (RUSTSEC, fixed in 0.16.3); `lru` now resolves to 0.16.4. RUSTSEC-2026-0253 (`LruCache::pop()`, fixed in 0.18.2) remains until `cryoglyph` allows a newer `lru`.
+- `bundle`: atomupd `buildid` and `version` are validated as single path components before they reach host paths.
+- `xtask`: `fetch`, the feed fetch, and the bundle download accept only `https://` URLs, pass `--` before the URL, and restrict curl to https (including redirects) with a 6-hour limit.
 - `bundle`: `RaucVerifier` now runs `rauc info --keyring <VIVELITE_RAUC_KEYRING>` (the verifying command; the previous `rauc status` never checked the bundle signature) and fails closed when no keyring is configured.
 - `bundle`: `OpensslVerifier` requires an explicit trusted CA file and never falls back to `-noverify`.
 - `bundle`: `debugfs` request paths are validated before spawning; atomupd feed paths and manifest image filenames are rejected when they could traverse or escape.
