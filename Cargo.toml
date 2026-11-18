@@ -34,3 +34,8 @@ undocumented_unsafe_blocks = "deny"
 [profile.release]
 lto = "thin"
 strip = true
+
+[patch.crates-io]
+# Local fork of cryoglyph 0.1.0 that accepts lru 0.18 (fixes RUSTSEC-2026-0253).
+# Remove once an upstream cryoglyph release allows a patched lru.
+cryoglyph = { path = "third_party/cryoglyph" }

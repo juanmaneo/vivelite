@@ -64,7 +64,7 @@ face. Unsafe blocks outside `-sys` crates are banned by workspace lints
 - [x] Local dev-check (`cargo xtask dev`): build, test, 100% function/line/region coverage. Verified with and without `DISPLAY`/`WAYLAND_DISPLAY` on Linux; window-launch tests run in child processes with those variables removed
 - [ ] Device UI (iced): overlay compositor frontend. The preview window and the XR render path build and are tested headlessly (`cargo xtask device-ui`, `cargo xtask device-ui --xr`); the render path wraps the session's swapchain `VkImage`s as wgpu textures via a shared-device graphics binding — on-device validation is pending
 - [ ] SteamOS component staging against a real Steam Frame image. Layout validation and manifest writing are tested with fixtures; a real-image run is pending. Requires `VIVELITE_RAUC_KEYRING` (Valve's RAUC CA) to verify bundles; verification fails closed without it
-- [ ] `lru` 0.16.4 is flagged by `cargo audit` as unsound (RUSTSEC-2026-0253, `LruCache::pop()` panic-safety use-after-free, fixed in 0.18.2). The earlier `IterMut` advisory (RUSTSEC, fixed in 0.16.3) is cleared by iced 0.14. `cryoglyph` 0.1.0, the latest release, pins `lru = "0.16"`, so the fix needs an upstream `cryoglyph` release or a local `[patch]`
+- [x] `lru` advisory RUSTSEC-2026-0253 (`LruCache::pop()`, fixed in 0.18.2) cleared locally: `third_party/cryoglyph` is a copy of `cryoglyph` 0.1.0 that accepts `lru` 0.18, wired in with `[patch.crates-io]`. Crates.io consumers still resolve `cryoglyph` 0.1.0 until upstream releases a newer `lru` requirement
 
 ## Ideas
 
