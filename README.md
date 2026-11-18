@@ -64,8 +64,7 @@ face. Unsafe blocks outside `-sys` crates are banned by workspace lints
 - [x] Local dev-check (`cargo xtask dev`): build, test, 100% function/line/region coverage. Verified with and without `DISPLAY`/`WAYLAND_DISPLAY` on Linux; window-launch tests run in child processes with those variables removed
 - [ ] Device UI (iced): overlay compositor frontend. The preview window and the XR render path build and are tested headlessly (`cargo xtask device-ui`, `cargo xtask device-ui --xr`); the render path wraps the session's swapchain `VkImage`s as wgpu textures via a shared-device graphics binding — on-device validation is pending
 - [ ] SteamOS component staging against a real Steam Frame image. Layout validation and manifest writing are tested with fixtures; a real-image run is pending. Requires `VIVELITE_RAUC_KEYRING` (Valve's RAUC CA) to verify bundles; verification fails closed without it
-- [x] Dependabot `lru` advisory (RUSTSEC, `IterMut` soundness, fixed in 0.16.3): cleared by the iced 0.14 upgrade; `lru` now resolves to 0.16.4 through `cryoglyph`
-- [ ] `lru` 0.16.4 is flagged by `cargo audit` as unsound (RUSTSEC-2026-0253, `LruCache::pop()` panic-safety use-after-free, fixed in 0.18.2). `cryoglyph` 0.1.0 pins `lru = "0.16"`, so the fix needs a `cryoglyph`/iced_wgpu update or a local patch
+- [ ] `lru` 0.16.4 is flagged by `cargo audit` as unsound (RUSTSEC-2026-0253, `LruCache::pop()` panic-safety use-after-free, fixed in 0.18.2). The earlier `IterMut` advisory (RUSTSEC, fixed in 0.16.3) is cleared by iced 0.14. `cryoglyph` 0.1.0, the latest release, pins `lru = "0.16"`, so the fix needs an upstream `cryoglyph` release or a local `[patch]`
 
 ## Ideas
 
@@ -88,8 +87,13 @@ face. Unsafe blocks outside `-sys` crates are banned by workspace lints
   intended for Adreno; this is not a transparent Vulkan layer
 - [ ] Verify the portable GFR marker backend on XR Elite/Adreno hardware; so
   far the probe is only validated on the host GPU
-- [ ] Evaluate FidelityFX CAS from PorQue4K as a reference for a future
-  upscaling path
+- [x] Evaluate FidelityFX CAS from PorQue4K as a reference for a future
+  upscaling path. Findings: CAS is a contrast-adaptive sharpening compute
+  pass with optional upsampling, not a full upscaler; it uses only core
+  compute, so it fits Adreno without vendor extensions. The upstream
+  FidelityFX code is MIT (AMD copyright), so a Rust port needs that
+  attribution. PorQue4K is archived and its CAS doc is a stub, so the
+  reference implementation is the GPUOpen FFX_CAS source. No port yet
 
 ## License
 
