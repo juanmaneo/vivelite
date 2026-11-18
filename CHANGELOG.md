@@ -62,6 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `device-ui`: upgraded iced 0.13 → 0.14 (`iced::application(boot, update, view)` API), and the `xr` render path to wgpu 27 and ash 0.38 to match iced's wgpu engine and wgpu-hal. The `x11` and `wayland` iced features are enabled to avoid a `softbuffer` build failure.
+- Rust toolchain pinned to 1.100.0 in `rust-toolchain.toml` (was `stable`), with `clippy`, `rustfmt`, and `llvm-tools` components for the coverage gate.
 
 ### Security
 
