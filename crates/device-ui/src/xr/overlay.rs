@@ -473,7 +473,14 @@ fn render_one_frame(
         swapchain.release()?;
         return session.end_frame(timing, &[]).map_err(OverlayError::from);
     }
-    renderer.render_into(overlay, image, WIDTH_PX, HEIGHT_PX)?;
+    if let Err(error) = renderer.render_into(overlay, image, WIDTH_PX, HEIGHT_PX) {
+        // Hand the image back and close the frame empty so the runtime's
+        // frame loop stays balanced; the render error is what the caller
+        // needs, so a failure while unwinding is ignored.
+        let _ = swapchain.release();
+        let _ = session.end_frame(timing, &[]);
+        return Err(error);
+    }
     swapchain.release()?;
     let layer = quad.layer(
         swapchain.raw(),

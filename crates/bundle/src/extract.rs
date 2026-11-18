@@ -146,10 +146,27 @@ fn validate_debugfs_path(path: &str) -> Result<()> {
     Ok(())
 }
 
+/// The destination is interpolated into the `debugfs -R` request string
+/// (which splits on whitespace and honors quotes), so it must not contain
+/// anything that would change how the request is parsed.
+fn validate_debugfs_dest(dest: &Path) -> Result<()> {
+    let text = dest.to_string_lossy();
+    if text.chars().any(|ch| ch.is_whitespace() || ch.is_control())
+        || text.contains(['"', '\'', '`', ';', '\\'])
+    {
+        return Err(Error::Other(format!(
+            "unsafe debugfs destination: {}",
+            dest.display()
+        )));
+    }
+    Ok(())
+}
+
 impl Extractor for Ext4Extractor {
     fn extract(&self, image: &Path, components: &[Component]) -> Result<()> {
         for c in components {
             validate_debugfs_path(&c.inner_path)?;
+            validate_debugfs_dest(&c.dest)?;
             std::fs::create_dir_all(&c.dest)?;
             // Paths inside the image are absolute without the leading slash
             // for debugfs requests; strip it.
@@ -480,6 +497,26 @@ esac
                 )
                 .unwrap_err();
             assert!(err.to_string().contains("debugfs path"), "{err}");
+        }
+    }
+
+    #[test]
+    fn ext4_extractor_rejects_unsafe_destinations_before_spawning() {
+        let dir = tempfile::tempdir().unwrap();
+        let extractor = Ext4Extractor::default();
+        for name in ["with space", "semi;colon", "quo\"te"] {
+            let dest = dir.path().join(name);
+            let err = extractor
+                .extract(
+                    Path::new("rootfs.img"),
+                    &[Component {
+                        inner_path: "/usr/lib".into(),
+                        dest: dest.clone(),
+                    }],
+                )
+                .unwrap_err();
+            assert!(err.to_string().contains("debugfs destination"), "{err}");
+            assert!(!dest.exists(), "created {name:?} before validating");
         }
     }
 

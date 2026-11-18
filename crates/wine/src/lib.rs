@@ -101,11 +101,9 @@ pub struct WineVersion {
 /// the call; the underlying getters read global state owned by the loader.
 #[cfg(feature = "link")]
 pub unsafe fn version() -> WineVersion {
-    let v = wine_sys::wine_get_version();
-    let b = wine_sys::wine_get_build_id();
     WineVersion {
-        version: CStr::from_ptr(v).to_string_lossy().into_owned(),
-        build: CStr::from_ptr(b).to_string_lossy().into_owned(),
+        version: wine_sys::cstr(wine_sys::wine_get_version()).to_owned(),
+        build: wine_sys::cstr(wine_sys::wine_get_build_id()).to_owned(),
     }
 }
 

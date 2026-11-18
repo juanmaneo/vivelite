@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `device-ui`: the iced 0.14 upgrade clears the `lru` `IterMut` soundness advisory (RUSTSEC, fixed in 0.16.3); `lru` now resolves to 0.16.4. RUSTSEC-2026-0253 (`LruCache::pop()`, fixed in 0.18.2) remains until `cryoglyph` allows a newer `lru`.
 - `bundle`: atomupd `buildid` and `version` are validated as single path components before they reach host paths.
+- `core`: staged tree walks are depth-bounded (64 levels) so a hostile image cannot exhaust the stack.
+- `bundle`: debugfs destinations are validated (no whitespace, quotes, `;`, or backslashes) before they reach the request string.
 - `xtask`: `fetch`, the feed fetch, and the bundle download accept only `https://` URLs, pass `--` before the URL, and restrict curl to https (including redirects) with a 6-hour limit.
 - `bundle`: `RaucVerifier` now runs `rauc info --keyring <VIVELITE_RAUC_KEYRING>` (the verifying command; the previous `rauc status` never checked the bundle signature) and fails closed when no keyring is configured.
 - `bundle`: `OpensslVerifier` requires an explicit trusted CA file and never falls back to `-noverify`.
@@ -32,6 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `wine`: `version()` reads the Wine version and build strings through the null-safe `wine_sys::cstr`.
+- `device-ui`: an XR render failure releases the swapchain image and closes the frame before returning the error, keeping the runtime's frame loop balanced.
 - `hcf`: the watchdog returns an error when its thread cannot start instead of silently running without one.
 - `hcf`: the Vulkan output buffer offset honors the buffer's alignment requirement.
 - `bundle`: tool spawn failures report "could not be started" instead of a fake exit status.

@@ -82,24 +82,39 @@ pub fn validate_and_write_manifest(root: &Path) -> io::Result<StagingReport> {
         bytes: 0,
         components: REQUIRED_COMPONENTS.len(),
     };
-    count_tree(root, &mut report)?;
+    count_tree(root, &mut report, 0)?;
     write_manifest(root, &report)?;
     Ok(report)
 }
 
-fn count_tree(path: &Path, report: &mut StagingReport) -> io::Result<()> {
+/// Deepest directory nesting the staged tree may have; real SteamOS trees
+/// stay far below this, and the bound keeps a hostile image from exhausting
+/// the stack.
+const MAX_TREE_DEPTH: usize = 64;
+
+fn count_tree(path: &Path, report: &mut StagingReport, depth: usize) -> io::Result<()> {
+    if depth > MAX_TREE_DEPTH {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("{} is nested deeper than {MAX_TREE_DEPTH}", path.display()),
+        ));
+    }
     for entry in fs::read_dir(path)? {
-        count_entry(entry, report)?;
+        count_entry(entry, report, depth)?;
     }
     Ok(())
 }
 
-fn count_entry(entry: io::Result<fs::DirEntry>, report: &mut StagingReport) -> io::Result<()> {
+fn count_entry(
+    entry: io::Result<fs::DirEntry>,
+    report: &mut StagingReport,
+    depth: usize,
+) -> io::Result<()> {
     let entry = entry?;
     let path = entry.path();
     let metadata = fs::symlink_metadata(&path)?;
     if metadata.is_dir() {
-        count_tree(&path, report)?;
+        count_tree(&path, report, depth + 1)?;
     } else {
         report.files += 1;
         report.bytes += metadata.len();
@@ -202,9 +217,14 @@ mod tests {
         };
         let file = temp.path().join("not-a-directory");
         fs::write(&file, b"x").unwrap();
-        assert!(count_tree(&file, &mut report.clone()).is_err());
+        assert!(count_tree(&file, &mut report.clone(), 0).is_err());
 
-        assert!(count_entry(Err(io::Error::other("entry failed")), &mut report.clone()).is_err());
+        assert!(count_entry(
+            Err(io::Error::other("entry failed")),
+            &mut report.clone(),
+            0
+        )
+        .is_err());
 
         let stale = temp.path().join("stale-entry");
         fs::write(&stale, b"x").unwrap();
@@ -214,7 +234,20 @@ mod tests {
             .find(|entry| entry.path() == stale)
             .unwrap();
         fs::remove_file(stale).unwrap();
-        assert!(count_entry(Ok(entry), &mut report.clone()).is_err());
+        assert!(count_entry(Ok(entry), &mut report.clone(), 0).is_err());
+    }
+
+    #[test]
+    fn tree_counting_rejects_excessive_nesting() {
+        let temp = fixture();
+        let mut deep = temp.path().join("deep");
+        for _ in 0..=MAX_TREE_DEPTH {
+            deep.push("d");
+        }
+        fs::create_dir_all(&deep).unwrap();
+        let err = validate_and_write_manifest(temp.path()).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        assert!(err.to_string().contains("nested deeper"), "{err}");
     }
 
     #[test]
