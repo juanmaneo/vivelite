@@ -38,6 +38,10 @@ pub enum Recipe {
     /// Submit the dispatch repeatedly, each time waiting on a binary
     /// semaphore that is never signaled, matching upstream `hang_semaphore`.
     BinarySemaphoreWait,
+    /// Wait on a timeline semaphore in the queue, host-signal that semaphore,
+    /// then block the host forever on a second timeline semaphore (Vulkan 1.1
+    /// with `VK_KHR_timeline_semaphore` or Vulkan 1.2+).
+    HostTimelineSemaphore,
 }
 
 /// One HCF hang case, as data.
@@ -126,8 +130,24 @@ pub const HANG_SEMAPHORE: Case = Case {
     recipe: Recipe::BinarySemaphoreWait,
 };
 
+/// `hang_timeline_semaphore_host`: queue waits on a host-signaled timeline
+/// semaphore, then the host waits forever on an un-signaled timeline
+/// semaphore, ported from upstream `hang_timeline_semaphore_host.cc`.
+pub const HANG_TIMELINE_SEMAPHORE_HOST: Case = Case {
+    name: "hang_timeline_semaphore_host",
+    summary: "host blocks forever waiting on an unsignaled timeline semaphore",
+    shader: HANG_HOST_EVENT.shader,
+    init: BufferInit::Default,
+    recipe: Recipe::HostTimelineSemaphore,
+};
+
 /// Every ported case, in a stable order.
-pub const CASES: &[Case] = &[HANG_INFINITE_LOOP, HANG_HOST_EVENT, HANG_SEMAPHORE];
+pub const CASES: &[Case] = &[
+    HANG_INFINITE_LOOP,
+    HANG_HOST_EVENT,
+    HANG_SEMAPHORE,
+    HANG_TIMELINE_SEMAPHORE_HOST,
+];
 
 /// All ported cases.
 pub fn cases() -> &'static [Case] {
@@ -165,10 +185,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_the_two_ported_cases_in_order() {
+    fn registry_has_the_ported_cases_in_order() {
         assert_eq!(
             cases().iter().map(|c| c.name).collect::<Vec<_>>(),
-            vec!["hang_infinite_loop", "hang_host_event", "hang_semaphore"]
+            vec![
+                "hang_infinite_loop",
+                "hang_host_event",
+                "hang_semaphore",
+                "hang_timeline_semaphore_host",
+            ]
         );
     }
 
@@ -180,6 +205,7 @@ mod tests {
         );
         assert!(case("hang_infinite_loop").is_some());
         assert!(case("hang_semaphore").is_some());
+        assert!(case("hang_timeline_semaphore_host").is_some());
         assert_eq!(case("crash_shader"), None);
     }
 
@@ -212,6 +238,10 @@ mod tests {
         assert_eq!(
             case("hang_semaphore").unwrap().recipe,
             Recipe::BinarySemaphoreWait
+        );
+        assert_eq!(
+            case("hang_timeline_semaphore_host").unwrap().recipe,
+            Recipe::HostTimelineSemaphore
         );
     }
 }

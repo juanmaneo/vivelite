@@ -24,9 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Host egui dashboard via `cargo xtask ui`.
 - `cargo xtask dev`: build, test, and 100% function/line/region coverage gate.
 - `hcf` crate: Halt and Catch Fire hang cases (`hang_infinite_loop`,
-  `hang_host_event`, `hang_semaphore`) ported to Rust with `ash`, with GLSL
-  kept in-tree and translated to SPIR-V at runtime via `naga`; device
-  execution lives behind the opt-in `vulkan` feature and watchdog runner.
+  `hang_host_event`, `hang_semaphore`, `hang_timeline_semaphore_host`) ported
+  to Rust with `ash`, with GLSL kept in-tree and translated to SPIR-V at
+  runtime via `naga`; device execution is opt-in behind the `vulkan` feature
+  and watchdog runner. The timeline case requires Vulkan 1.1+ with timeline
+  semaphores available through core 1.2 or `VK_KHR_timeline_semaphore`.
 - `cargo xtask gpu-stress <case> [--timeout <secs>]`: opt-in GPU robustness
   workloads, outside `dev` and the coverage gate, with a force-exit
   watchdog (exit code 3 = hang detected, 4 = device lost).

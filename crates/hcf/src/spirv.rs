@@ -125,7 +125,7 @@ mod tests {
     const MAGIC: u32 = 0x0723_0203;
 
     #[test]
-    fn both_cases_translate_to_valid_spirv_1_0() {
+    fn every_case_translates_to_valid_spirv_1_0() {
         for case in crate::case::cases() {
             let words = translate(case).expect(case.name);
             assert_eq!(words[0], MAGIC, "case {}", case.name);

@@ -16,6 +16,7 @@
 // silences the workspace's `unsafe_code = warn` lint, matching the `-sys`
 // crates' stance.
 
+use std::ffi::CStr;
 use std::fmt;
 use std::time::Duration;
 
@@ -61,6 +62,8 @@ pub enum Error {
     Loader(String),
     /// No physical device with a compute queue family was found.
     NoDevice,
+    /// No Vulkan 1.1+ compute device exposing timeline semaphore support was found.
+    TimelineSemaphoreUnsupported,
     /// No `HOST_VISIBLE | HOST_COHERENT` memory type backs the buffers.
     NoMemoryType,
     /// The case's GLSL could not be translated to SPIR-V.
@@ -74,6 +77,9 @@ impl fmt::Display for Error {
         match self {
             Error::Loader(e) => write!(f, "no Vulkan loader: {e}"),
             Error::NoDevice => f.write_str("no device with a compute queue family"),
+            Error::TimelineSemaphoreUnsupported => {
+                f.write_str("no Vulkan 1.1+ compute device with timeline semaphore support")
+            }
             Error::NoMemoryType => {
                 f.write_str("no HOST_VISIBLE|HOST_COHERENT memory type for the buffers")
             }
@@ -85,6 +91,12 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TimelineDispatch {
+    Core,
+    Khr,
+}
+
 /// The live Vulkan objects one case runs against.
 struct Gpu {
     /// Kept alive: `ash` loads function pointers from the loader this owns.
@@ -95,12 +107,13 @@ struct Gpu {
     family: u32,
     queue: vk::Queue,
     memory_properties: vk::PhysicalDeviceMemoryProperties,
+    timeline_dispatch: Option<TimelineDispatch>,
 }
 
 impl Gpu {
     /// Creates an instance and picks the first physical device exposing a
     /// compute queue family — upstream's default single-device setup.
-    fn new() -> Result<Self, Error> {
+    fn new(require_timeline_semaphore: bool) -> Result<Self, Error> {
         // SAFETY: `Entry::load` dlopen's the system Vulkan loader, the
         // documented contract of the `loaded` feature; the `Entry` is owned
         // by this struct, so every function pointer it hands out stays
@@ -108,10 +121,23 @@ impl Gpu {
         let entry = unsafe { Entry::load() }.map_err(|e| Error::Loader(e.to_string()))?;
 
         let name = c"vivelite hcf";
+        let requested_api = if require_timeline_semaphore {
+            // SAFETY: querying the loader's instance API version does not
+            // access a device or require any additional Vulkan state.
+            let loader_api = unsafe { entry.try_enumerate_instance_version() }
+                .map_err(vk_err)?
+                .unwrap_or(vk::API_VERSION_1_0);
+            if loader_api < vk::API_VERSION_1_1 {
+                return Err(Error::TimelineSemaphoreUnsupported);
+            }
+            loader_api.min(vk::API_VERSION_1_2)
+        } else {
+            vk::API_VERSION_1_0
+        };
         let app_info = vk::ApplicationInfo::default()
             .application_name(name)
             .engine_name(name)
-            .api_version(vk::API_VERSION_1_0);
+            .api_version(requested_api);
         let create_info = vk::InstanceCreateInfo::default().application_info(&app_info);
         // SAFETY: no layers or extensions are requested, and the instance
         // is destroyed in `drop` while the owning entry is still alive.
@@ -123,25 +149,83 @@ impl Gpu {
             .map_err(|e| Error::Vulkan(e.to_string()))?;
 
         let mut chosen = None;
+        let mut saw_compute_device = false;
         for physical in physicals {
             // SAFETY: querying properties of a valid physical device.
             let families =
                 unsafe { instance.get_physical_device_queue_family_properties(physical) };
-            if let Some(family) = families
+            let Some(family) = families
                 .iter()
                 .position(|f| f.queue_flags.contains(vk::QueueFlags::COMPUTE))
-            {
-                chosen = Some((physical, family as u32));
-                break;
+            else {
+                continue;
+            };
+            saw_compute_device = true;
+            let timeline_dispatch = if require_timeline_semaphore {
+                // SAFETY: the physical device came from this live instance.
+                let properties = unsafe { instance.get_physical_device_properties(physical) };
+                let device_api = properties.api_version.min(requested_api);
+                let extension_available = if device_api < vk::API_VERSION_1_2 {
+                    // SAFETY: standard extension enumeration for a valid
+                    // physical device on this live instance.
+                    let extensions =
+                        unsafe { instance.enumerate_device_extension_properties(physical) }
+                            .map_err(vk_err)?;
+                    extensions.iter().any(|property| {
+                        extension_name_matches(property, vk::KHR_TIMELINE_SEMAPHORE_NAME)
+                    })
+                } else {
+                    false
+                };
+                if timeline_dispatch_for(device_api, extension_available, true).is_none() {
+                    continue;
+                }
+                let mut timeline = vk::PhysicalDeviceTimelineSemaphoreFeatures::default();
+                let mut features = vk::PhysicalDeviceFeatures2::default().push_next(&mut timeline);
+                // SAFETY: Vulkan 1.1 exposes features2 in core; `timeline`
+                // is the KHR feature structure being queried.
+                unsafe { instance.get_physical_device_features2(physical, &mut features) };
+                timeline_dispatch_for(
+                    device_api,
+                    extension_available,
+                    timeline.timeline_semaphore == vk::TRUE,
+                )
+            } else {
+                None
+            };
+            if require_timeline_semaphore && timeline_dispatch.is_none() {
+                continue;
             }
+            chosen = Some((physical, family as u32, timeline_dispatch));
+            break;
         }
-        let (physical_device, family) = chosen.ok_or(Error::NoDevice)?;
+        let (physical_device, family, timeline_dispatch) = match chosen {
+            Some(device) => device,
+            None if require_timeline_semaphore && saw_compute_device => {
+                return Err(Error::TimelineSemaphoreUnsupported);
+            }
+            None => return Err(Error::NoDevice),
+        };
 
         let queue_info = vk::DeviceQueueCreateInfo::default()
             .queue_family_index(family)
             .queue_priorities(&[1.0]);
         let queue_infos = [queue_info];
-        let device_info = vk::DeviceCreateInfo::default().queue_create_infos(&queue_infos);
+        let timeline_extensions = if timeline_dispatch == Some(TimelineDispatch::Khr) {
+            vec![vk::KHR_TIMELINE_SEMAPHORE_NAME.as_ptr()]
+        } else {
+            Vec::new()
+        };
+        let device_info = vk::DeviceCreateInfo::default()
+            .queue_create_infos(&queue_infos)
+            .enabled_extension_names(&timeline_extensions);
+        let mut timeline_features =
+            vk::PhysicalDeviceTimelineSemaphoreFeatures::default().timeline_semaphore(true);
+        let device_info = if require_timeline_semaphore {
+            device_info.push_next(&mut timeline_features)
+        } else {
+            device_info
+        };
         // SAFETY: the queue family index comes from the device's own
         // property list and the device is destroyed in `drop`.
         let device = unsafe { instance.create_device(physical_device, &device_info, None) }
@@ -163,6 +247,7 @@ impl Gpu {
             family,
             queue,
             memory_properties,
+            timeline_dispatch,
         })
     }
 }
@@ -194,6 +279,28 @@ fn memory_type(props: &vk::PhysicalDeviceMemoryProperties, supported: u32) -> Op
 }
 
 /// The physical device's name, for progress output.
+fn timeline_dispatch_for(
+    api_version: u32,
+    khr_extension_available: bool,
+    feature_available: bool,
+) -> Option<TimelineDispatch> {
+    if !feature_available || api_version < vk::API_VERSION_1_1 {
+        None
+    } else if api_version >= vk::API_VERSION_1_2 {
+        Some(TimelineDispatch::Core)
+    } else if khr_extension_available {
+        Some(TimelineDispatch::Khr)
+    } else {
+        None
+    }
+}
+
+fn extension_name_matches(property: &vk::ExtensionProperties, requested: &CStr) -> bool {
+    // SAFETY: Vulkan specifies each enumerated extension_name as a
+    // null-terminated string within this fixed-size array.
+    unsafe { CStr::from_ptr(property.extension_name.as_ptr()) == requested }
+}
+
 fn device_name(instance: &ash::Instance, physical: vk::PhysicalDevice) -> String {
     // SAFETY: querying properties of a valid physical device.
     let props = unsafe { instance.get_physical_device_properties(physical) };
@@ -421,7 +528,7 @@ fn create_commands(
     let pool = unsafe { gpu.device.create_command_pool(&pool_info, None) }.map_err(vk_err)?;
 
     let count = match case.recipe {
-        Recipe::InfiniteLoop | Recipe::BinarySemaphoreWait => 2,
+        Recipe::InfiniteLoop | Recipe::BinarySemaphoreWait | Recipe::HostTimelineSemaphore => 2,
         Recipe::HostEvent => 3,
     };
     let alloc_info = vk::CommandBufferAllocateInfo::default()
@@ -470,6 +577,8 @@ fn create_commands(
                 );
                 // Dispatch again to see if commands execute after the wait.
                 gpu.device.cmd_dispatch(cb, 1, 1, 1);
+            } else if i == 0 && case.recipe == Recipe::HostTimelineSemaphore {
+                gpu.device.cmd_dispatch(cb, 1, 1, 1);
             }
             gpu.device.end_command_buffer(cb).map_err(vk_err)?;
         }
@@ -501,6 +610,56 @@ fn wait_idle(gpu: &Gpu) -> Result<Outcome, Error> {
     }
 }
 
+fn create_timeline_semaphore(gpu: &Gpu, initial_value: u64) -> Result<vk::Semaphore, Error> {
+    let mut timeline_info = vk::SemaphoreTypeCreateInfo::default()
+        .semaphore_type(vk::SemaphoreType::TIMELINE)
+        .initial_value(initial_value);
+    let create_info = vk::SemaphoreCreateInfo::default().push_next(&mut timeline_info);
+    // SAFETY: timeline semaphore support was checked and enabled when this
+    // device was created; the returned handle is owned by the device.
+    unsafe { gpu.device.create_semaphore(&create_info, None) }.map_err(vk_err)
+}
+
+fn signal_timeline_semaphore(gpu: &Gpu, signal: &vk::SemaphoreSignalInfo<'_>) -> Result<(), Error> {
+    match gpu
+        .timeline_dispatch
+        .expect("timeline operation requires timeline-enabled device")
+    {
+        TimelineDispatch::Core => {
+            // SAFETY: the signal info refers to a live timeline semaphore on
+            // this Vulkan 1.2 device.
+            unsafe { gpu.device.signal_semaphore(signal) }.map_err(vk_err)
+        }
+        TimelineDispatch::Khr => {
+            let timeline = ash::khr::timeline_semaphore::Device::new(&gpu.instance, &gpu.device);
+            // SAFETY: the KHR extension was enabled during device creation.
+            unsafe { timeline.signal_semaphore(signal) }.map_err(vk_err)
+        }
+    }
+}
+
+fn wait_timeline_semaphores(
+    gpu: &Gpu,
+    wait: &vk::SemaphoreWaitInfo<'_>,
+    timeout: u64,
+) -> Result<(), Error> {
+    match gpu
+        .timeline_dispatch
+        .expect("timeline operation requires timeline-enabled device")
+    {
+        TimelineDispatch::Core => {
+            // SAFETY: the wait info refers to a live timeline semaphore on
+            // this Vulkan 1.2 device.
+            unsafe { gpu.device.wait_semaphores(wait, timeout) }.map_err(vk_err)
+        }
+        TimelineDispatch::Khr => {
+            let timeline = ash::khr::timeline_semaphore::Device::new(&gpu.instance, &gpu.device);
+            // SAFETY: the KHR extension was enabled during device creation.
+            unsafe { timeline.wait_semaphores(wait, timeout) }.map_err(vk_err)
+        }
+    }
+}
+
 /// Runs the case's own submissions, mirroring the flow of each upstream
 /// `.cc` file.
 fn run_recipe(
@@ -508,6 +667,7 @@ fn run_recipe(
     case: &Case,
     cbs: &[vk::CommandBuffer],
     semaphore: Option<vk::Semaphore>,
+    timeline_semaphores: Option<[vk::Semaphore; 2]>,
 ) -> Result<Outcome, Error> {
     match case.recipe {
         Recipe::InfiniteLoop => {
@@ -552,6 +712,50 @@ fn run_recipe(
                 std::thread::sleep(Duration::from_micros(500));
             }
             wait_idle(gpu)
+        }
+        Recipe::HostTimelineSemaphore => {
+            let [queue_wait, host_wait] =
+                timeline_semaphores.expect("timeline-semaphore recipe carries both semaphores");
+            let semaphores = [queue_wait];
+            let values = [0x20];
+            let stages = [vk::PipelineStageFlags::ALL_COMMANDS];
+            let mut timeline_submit =
+                vk::TimelineSemaphoreSubmitInfo::default().wait_semaphore_values(&values);
+            let submit_info = vk::SubmitInfo::default()
+                .push_next(&mut timeline_submit)
+                .wait_semaphores(&semaphores)
+                .wait_dst_stage_mask(&stages)
+                .command_buffers(std::slice::from_ref(&cbs[0]));
+            eprintln!("hcf: submit waiting on timeline semaphore value 0x20...");
+            // SAFETY: both semaphores and the command buffer belong to this
+            // timeline-enabled device; the host signal below releases this queue wait.
+            unsafe {
+                gpu.device.queue_submit(
+                    gpu.queue,
+                    std::slice::from_ref(&submit_info),
+                    vk::Fence::null(),
+                )
+            }
+            .map_err(vk_err)?;
+
+            let signal = vk::SemaphoreSignalInfo::default()
+                .semaphore(queue_wait)
+                .value(0x20);
+            eprintln!("hcf: host-signalling the first timeline semaphore...");
+            // SAFETY: `queue_wait` is a live timeline semaphore on the device,
+            // and 0x20 is greater than its initial value 0x10.
+            signal_timeline_semaphore(gpu, &signal)?;
+
+            let semaphores = [host_wait];
+            let wait_values = [0x20];
+            let wait = vk::SemaphoreWaitInfo::default()
+                .semaphores(&semaphores)
+                .values(&wait_values);
+            eprintln!("hcf: host waiting forever on the never-signalled semaphore...");
+            // SAFETY: this intentional infinite wait is isolated in the child
+            // runner and terminated by its process watchdog.
+            wait_timeline_semaphores(gpu, &wait, u64::MAX)?;
+            Ok(Outcome::Completed)
         }
     }
 }
@@ -620,7 +824,8 @@ fn merge(a: Outcome, b: Outcome) -> Outcome {
 /// Any setup failure (no loader, no device, no memory type, translation
 /// failure, driver error). Hangs and device loss are outcomes, not errors.
 pub fn execute(case: &Case) -> Result<Outcome, Error> {
-    let gpu = Gpu::new()?;
+    let require_timeline = case.recipe == Recipe::HostTimelineSemaphore;
+    let gpu = Gpu::new(require_timeline)?;
     let buffers = create_buffers(&gpu, case)?;
     let program = create_program(&gpu, &buffers, case)?;
 
@@ -634,7 +839,7 @@ pub fn execute(case: &Case) -> Result<Outcome, Error> {
             }
             .map_err(vk_err)?,
         ),
-        Recipe::InfiniteLoop | Recipe::BinarySemaphoreWait => None,
+        Recipe::InfiniteLoop | Recipe::BinarySemaphoreWait | Recipe::HostTimelineSemaphore => None,
     };
     let semaphore = match case.recipe {
         Recipe::BinarySemaphoreWait => Some(
@@ -646,13 +851,21 @@ pub fn execute(case: &Case) -> Result<Outcome, Error> {
             }
             .map_err(vk_err)?,
         ),
-        Recipe::InfiniteLoop | Recipe::HostEvent => None,
+        Recipe::InfiniteLoop | Recipe::HostEvent | Recipe::HostTimelineSemaphore => None,
+    };
+    let timeline_semaphores = if require_timeline {
+        Some([
+            create_timeline_semaphore(&gpu, 0x10)?,
+            create_timeline_semaphore(&gpu, 0x10)?,
+        ])
+    } else {
+        None
     };
 
     let commands = create_commands(&gpu, case, &program, event)?;
     let (recipe_cbs, check_cb) = commands.buffers.split_at(commands.buffers.len() - 1);
 
-    let recipe = run_recipe(&gpu, case, recipe_cbs, semaphore)?;
+    let recipe = run_recipe(&gpu, case, recipe_cbs, semaphore, timeline_semaphores)?;
     let check = crash_check(&gpu, check_cb[0])?;
     Ok(merge(recipe, check))
 }
@@ -660,4 +873,30 @@ pub fn execute(case: &Case) -> Result<Outcome, Error> {
 /// Maps a Vulkan result to an [`Error`].
 fn vk_err(e: vk::Result) -> Error {
     Error::Vulkan(e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn timeline_dispatch_selects_core_extension_or_rejects_the_device() {
+        assert_eq!(
+            timeline_dispatch_for(vk::API_VERSION_1_2, false, true),
+            Some(TimelineDispatch::Core)
+        );
+        assert_eq!(
+            timeline_dispatch_for(vk::API_VERSION_1_1, true, true),
+            Some(TimelineDispatch::Khr)
+        );
+        assert_eq!(
+            timeline_dispatch_for(vk::API_VERSION_1_1, false, true),
+            None
+        );
+        assert_eq!(
+            timeline_dispatch_for(vk::API_VERSION_1_2, false, false),
+            None
+        );
+        assert_eq!(timeline_dispatch_for(vk::API_VERSION_1_0, true, true), None);
+    }
 }

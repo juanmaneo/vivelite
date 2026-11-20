@@ -75,10 +75,14 @@ face. Unsafe blocks outside `-sys` crates are banned by workspace lints
   coverage gate (the runner is built separately with the `vulkan`
   feature), with timeout and watchdog
 - [x] Port Halt and Catch Fire hang cases to Rust with `ash`:
-  `hang_infinite_loop`, `hang_host_event`, and `hang_semaphore` live in
-  `crates/hcf` (GLSL kept in-tree, translated to SPIR-V at runtime with
-  `naga`). GPU workloads remain opt-in and must only run under the watchdog.
-- [ ] Port additional HCF cases (`hang_timeline_semaphore_host` and crash cases).
+  `hang_infinite_loop`, `hang_host_event`, `hang_semaphore`, and
+  `hang_timeline_semaphore_host` live in `crates/hcf` (GLSL kept in-tree,
+  translated to SPIR-V at runtime with `naga`). The timeline case requires
+  Vulkan 1.1+ plus timeline-semaphore support (core 1.2 or
+  `VK_KHR_timeline_semaphore`); unsupported devices fail closed. GPU workloads
+  remain opt-in and must only run under the watchdog.
+- [ ] Port crash cases. These deliberately exercise invalid GPU behavior and
+  should only be tested on an isolated device with a recovery path.
 - [x] Render the iced overlay into OpenXR swapchain images: the
   `device-ui` `xr` feature creates the wgpu Vulkan device, hands its raw
   handles to the runtime as the session's graphics binding, and renders
