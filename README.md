@@ -68,6 +68,9 @@ face. Unsafe blocks outside `-sys` crates are banned by workspace lints
 
 ## Ideas
 
+- [x] Add Rust-native foundations inspired by frame-shell and frame-monado: `crates/core/src/performance.rs` models streaming/standard performance modes and one-shot battery warnings; `crates/core/src/runtime_settings.rs` validates documented passthrough, mirror, and eye-camera settings; `crates/eye` provides per-axis gaze calibration, a One Euro filter, and a pure OSC encoder. These are models/utilities, not a frame-shell port, a Monado fork, a SteamOS service integration, or a complete eye-camera client. They were implemented from the projects' public documentation without copying their source (frame-shell is GPL-3.0; frame-monado is BSL-1.0).
+- [ ] Validate the eye calibration model, filtering parameters, and OSC schema against a real tracker and VRChat; wire calibration persistence and OSC transport into the device UI/runtime.
+- [ ] Decide which OpenXR features are actually exposed by the XR Elite's runtime before implementing eye gaze, passthrough, mirror output, or frame-specific controls. The cited frame-monado features and hardware interfaces are Steam Frame-specific and must not be assumed available on VIVE XR Elite.
 - [x] `cargo xtask gpu-stress <case>`: opt-in, outside `dev` and the
   coverage gate (the runner is built separately with the `vulkan`
   feature), with timeout and watchdog

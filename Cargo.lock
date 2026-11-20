@@ -3844,6 +3844,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "vivelite-eye"
+version = "0.1.1"
+
+[[package]]
 name = "vivelite-fex"
 version = "0.1.1"
 dependencies = [

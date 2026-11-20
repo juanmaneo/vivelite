@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Rust-native concepts inspired by frame-shell/frame-monado documentation: core performance modes and battery warning state, validated runtime settings, and a new `vivelite-eye` crate for gaze calibration, One Euro filtering, and a testable OSC encoder. This is not copied source or a Steam Frame port; hardware support and OSC interoperability remain unverified.
 - `LICENSE-MIT` and `LICENSE-APACHE` license texts (dual-licensed `MIT OR Apache-2.0`).
 - `CHANGELOG.md`.
 - Workspace with `xtask` build orchestrator and `vivelite-core` stage/layout model.

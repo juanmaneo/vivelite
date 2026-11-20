@@ -12,6 +12,8 @@
 
 use std::path::Path;
 
+pub mod performance;
+pub mod runtime_settings;
 pub mod staging;
 
 /// Build stages, in the order `xtask` runs them.

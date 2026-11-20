@@ -1,0 +1,13 @@
+[package]
+name = "vivelite-eye"
+description = "Eye-gaze calibration, smoothing, and VRChat OSC encoding for vivelite"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "eye"
+
+[lints]
+workspace = true
