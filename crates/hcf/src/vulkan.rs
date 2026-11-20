@@ -421,7 +421,7 @@ fn create_commands(
     let pool = unsafe { gpu.device.create_command_pool(&pool_info, None) }.map_err(vk_err)?;
 
     let count = match case.recipe {
-        Recipe::InfiniteLoop => 2,
+        Recipe::InfiniteLoop | Recipe::BinarySemaphoreWait => 2,
         Recipe::HostEvent => 3,
     };
     let alloc_info = vk::CommandBufferAllocateInfo::default()
@@ -503,7 +503,12 @@ fn wait_idle(gpu: &Gpu) -> Result<Outcome, Error> {
 
 /// Runs the case's own submissions, mirroring the flow of each upstream
 /// `.cc` file.
-fn run_recipe(gpu: &Gpu, case: &Case, cbs: &[vk::CommandBuffer]) -> Result<Outcome, Error> {
+fn run_recipe(
+    gpu: &Gpu,
+    case: &Case,
+    cbs: &[vk::CommandBuffer],
+    semaphore: Option<vk::Semaphore>,
+) -> Result<Outcome, Error> {
     match case.recipe {
         Recipe::InfiniteLoop => {
             eprintln!("hcf: submit (long-running dispatch)...");
@@ -522,6 +527,31 @@ fn run_recipe(gpu: &Gpu, case: &Case, cbs: &[vk::CommandBuffer]) -> Result<Outco
             submit(gpu, cbs[1])?;
             let second = wait_idle(gpu)?;
             Ok(merge(first, second))
+        }
+        Recipe::BinarySemaphoreWait => {
+            let semaphore = semaphore.expect("binary-semaphore recipe carries its semaphore");
+            let semaphores = [semaphore];
+            let stages = [vk::PipelineStageFlags::ALL_COMMANDS];
+            for submission in 1..=5 {
+                eprintln!("hcf: submit {submission} (wait on never-signaled semaphore)...");
+                let info = vk::SubmitInfo::default()
+                    .command_buffers(std::slice::from_ref(&cbs[0]))
+                    .wait_semaphores(&semaphores)
+                    .wait_dst_stage_mask(&stages);
+                // SAFETY: the semaphore and command buffer belong to this
+                // device; repeated unsignaled waits intentionally reproduce
+                // the upstream robustness workload under the child watchdog.
+                unsafe {
+                    gpu.device.queue_submit(
+                        gpu.queue,
+                        std::slice::from_ref(&info),
+                        vk::Fence::null(),
+                    )
+                }
+                .map_err(vk_err)?;
+                std::thread::sleep(Duration::from_micros(500));
+            }
+            wait_idle(gpu)
         }
     }
 }
@@ -604,13 +634,25 @@ pub fn execute(case: &Case) -> Result<Outcome, Error> {
             }
             .map_err(vk_err)?,
         ),
-        Recipe::InfiniteLoop => None,
+        Recipe::InfiniteLoop | Recipe::BinarySemaphoreWait => None,
+    };
+    let semaphore = match case.recipe {
+        Recipe::BinarySemaphoreWait => Some(
+            // SAFETY: plain object creation on a live device; binary
+            // semaphores start unsignaled.
+            unsafe {
+                gpu.device
+                    .create_semaphore(&vk::SemaphoreCreateInfo::default(), None)
+            }
+            .map_err(vk_err)?,
+        ),
+        Recipe::InfiniteLoop | Recipe::HostEvent => None,
     };
 
     let commands = create_commands(&gpu, case, &program, event)?;
     let (recipe_cbs, check_cb) = commands.buffers.split_at(commands.buffers.len() - 1);
 
-    let recipe = run_recipe(&gpu, case, recipe_cbs)?;
+    let recipe = run_recipe(&gpu, case, recipe_cbs, semaphore)?;
     let check = crash_check(&gpu, check_cb[0])?;
     Ok(merge(recipe, check))
 }

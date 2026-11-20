@@ -35,6 +35,9 @@ pub enum Recipe {
     /// signaled (src `HOST` → dst `TOP_OF_PIPE`), then dispatch again;
     /// submit, wait idle, submit a second plain-dispatch buffer, wait idle.
     HostEvent,
+    /// Submit the dispatch repeatedly, each time waiting on a binary
+    /// semaphore that is never signaled, matching upstream `hang_semaphore`.
+    BinarySemaphoreWait,
 }
 
 /// One HCF hang case, as data.
@@ -113,8 +116,18 @@ void main() {
 ",
 };
 
+/// `hang_semaphore`: queue submissions wait on a binary semaphore that is
+/// never signaled, ported from upstream `hang_semaphore.cc`.
+pub const HANG_SEMAPHORE: Case = Case {
+    name: "hang_semaphore",
+    summary: "queue repeatedly waits on a never-signaled binary semaphore",
+    shader: HANG_HOST_EVENT.shader,
+    init: BufferInit::Default,
+    recipe: Recipe::BinarySemaphoreWait,
+};
+
 /// Every ported case, in a stable order.
-pub const CASES: &[Case] = &[HANG_INFINITE_LOOP, HANG_HOST_EVENT];
+pub const CASES: &[Case] = &[HANG_INFINITE_LOOP, HANG_HOST_EVENT, HANG_SEMAPHORE];
 
 /// All ported cases.
 pub fn cases() -> &'static [Case] {
@@ -155,7 +168,7 @@ mod tests {
     fn registry_has_the_two_ported_cases_in_order() {
         assert_eq!(
             cases().iter().map(|c| c.name).collect::<Vec<_>>(),
-            vec!["hang_infinite_loop", "hang_host_event"]
+            vec!["hang_infinite_loop", "hang_host_event", "hang_semaphore"]
         );
     }
 
@@ -166,6 +179,7 @@ mod tests {
             Some("hang_host_event")
         );
         assert!(case("hang_infinite_loop").is_some());
+        assert!(case("hang_semaphore").is_some());
         assert_eq!(case("crash_shader"), None);
     }
 
@@ -195,5 +209,9 @@ mod tests {
         );
         assert_eq!(case("hang_host_event").unwrap().init, BufferInit::Default);
         assert_eq!(case("hang_host_event").unwrap().recipe, Recipe::HostEvent);
+        assert_eq!(
+            case("hang_semaphore").unwrap().recipe,
+            Recipe::BinarySemaphoreWait
+        );
     }
 }
