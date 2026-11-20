@@ -10,13 +10,17 @@
 //! the `EyeLook*` keys). The implementation here is written from that
 //! documented behavior, not from frame-shell's GPL-3.0 code.
 //!
-//! Everything in this crate is pure data: a sender would live with the
-//! process that owns the socket.
+//! Tracker acquisition remains platform-specific, but calibration can be
+//! persisted in a versioned text file and the crate can send its encoded face
+//! messages over a caller-configured UDP socket.
 
 pub mod calibration;
 pub mod filter;
 pub mod osc;
+pub mod persistence;
+pub mod transport;
 
 pub use calibration::{Calibration, EyeSample};
 pub use filter::OneEuro;
 pub use osc::{encode_face_v1, FaceExpressions};
+pub use transport::OscSender;

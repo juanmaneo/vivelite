@@ -68,17 +68,17 @@ face. Unsafe blocks outside `-sys` crates are banned by workspace lints
 
 ## Ideas
 
-- [x] Add Rust-native foundations inspired by frame-shell and frame-monado: `crates/core/src/performance.rs` models streaming/standard performance modes and one-shot battery warnings; `crates/core/src/runtime_settings.rs` validates documented passthrough, mirror, and eye-camera settings; `crates/eye` provides per-axis gaze calibration, a One Euro filter, and a pure OSC encoder. These are models/utilities, not a frame-shell port, a Monado fork, a SteamOS service integration, or a complete eye-camera client. They were implemented from the projects' public documentation without copying their source (frame-shell is GPL-3.0; frame-monado is BSL-1.0).
-- [ ] Validate the eye calibration model, filtering parameters, and OSC schema against a real tracker and VRChat; wire calibration persistence and OSC transport into the device UI/runtime.
+- [x] Add Rust-native foundations inspired by frame-shell and frame-monado: `crates/core/src/performance.rs` models streaming/standard performance modes and one-shot battery warnings; `crates/core/src/runtime_settings.rs` validates documented passthrough, mirror, and eye-camera settings; `crates/eye` provides per-axis gaze calibration, a One Euro filter, versioned calibration persistence, OSC encoding, and configurable UDP transport. These are models/utilities, not a frame-shell port, a Monado fork, a SteamOS service integration, or a complete eye-camera client. They were implemented from the projects' public documentation without copying their source (frame-shell is GPL-3.0; frame-monado is BSL-1.0).
+- [ ] Validate calibration, filter parameters, and OSC interoperability against a real tracker and VRChat; connect a hardware tracker and the sender to the device UI/runtime.
 - [ ] Decide which OpenXR features are actually exposed by the XR Elite's runtime before implementing eye gaze, passthrough, mirror output, or frame-specific controls. The cited frame-monado features and hardware interfaces are Steam Frame-specific and must not be assumed available on VIVE XR Elite.
 - [x] `cargo xtask gpu-stress <case>`: opt-in, outside `dev` and the
   coverage gate (the runner is built separately with the `vulkan`
   feature), with timeout and watchdog
 - [x] Port Halt and Catch Fire hang cases to Rust with `ash`:
-  `hang_infinite_loop` and `hang_host_event` live in `crates/hcf`
-  (GLSL kept in-tree, translated to SPIR-V at runtime with `naga`)
-- [ ] Port more HCF cases as needed (`hang_semaphore`,
-  `hang_timeline_semaphore_host`, the crash cases)
+  `hang_infinite_loop`, `hang_host_event`, and `hang_semaphore` live in
+  `crates/hcf` (GLSL kept in-tree, translated to SPIR-V at runtime with
+  `naga`). GPU workloads remain opt-in and must only run under the watchdog.
+- [ ] Port additional HCF cases (`hang_timeline_semaphore_host` and crash cases).
 - [x] Render the iced overlay into OpenXR swapchain images: the
   `device-ui` `xr` feature creates the wgpu Vulkan device, hands its raw
   handles to the runtime as the session's graphics binding, and renders
@@ -88,8 +88,9 @@ face. Unsafe blocks outside `-sys` crates are banned by workspace lints
 - [x] Rust GFR primitives and opt-in Vulkan probe (`cargo xtask gfr-probe`):
   AMD extension backend plus a portable core-Vulkan compute-marker backend
   intended for Adreno; this is not a transparent Vulkan layer
-- [ ] Verify the portable GFR marker backend on XR Elite/Adreno hardware; so
-  far the probe is only validated on the host GPU
+- [ ] Verify the portable GFR marker backend on XR Elite/Adreno hardware; both
+  AMD and forced-portable probe backends completed on this host's AMD Radeon
+  Graphics (RADV RENOIR), not on the XR Elite GPU
 - [x] Evaluate FidelityFX CAS from PorQue4K as a reference for a future
   upscaling path. Findings: CAS is a contrast-adaptive sharpening compute
   pass with optional upsampling, not a full upscaler; it uses only core

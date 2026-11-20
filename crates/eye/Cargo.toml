@@ -9,5 +9,8 @@ repository.workspace = true
 [lib]
 name = "eye"
 
+[dev-dependencies]
+tempfile = "3"
+
 [lints]
 workspace = true

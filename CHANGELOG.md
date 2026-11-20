@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Rust-native concepts inspired by frame-shell/frame-monado documentation: core performance modes and battery warning state, validated runtime settings, and a new `vivelite-eye` crate for gaze calibration, One Euro filtering, and a testable OSC encoder. This is not copied source or a Steam Frame port; hardware support and OSC interoperability remain unverified.
+- Rust-native concepts inspired by frame-shell/frame-monado documentation: core performance modes and battery warning state, validated runtime settings, and a new `vivelite-eye` crate for gaze calibration, One Euro filtering, versioned calibration persistence, OSC encoding, and configurable UDP transport. This is not copied source or a Steam Frame port; hardware support and OSC interoperability remain unverified.
 - `LICENSE-MIT` and `LICENSE-APACHE` license texts (dual-licensed `MIT OR Apache-2.0`).
 - `CHANGELOG.md`.
 - Workspace with `xtask` build orchestrator and `vivelite-core` stage/layout model.
@@ -24,9 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Host egui dashboard via `cargo xtask ui`.
 - `cargo xtask dev`: build, test, and 100% function/line/region coverage gate.
 - `hcf` crate: Halt and Catch Fire hang cases (`hang_infinite_loop`,
-  `hang_host_event`) ported to Rust with `ash`, with GLSL kept in-tree and
-  translated to SPIR-V at runtime via `naga`; the device execution path
-  lives behind the opt-in `vulkan` feature.
+  `hang_host_event`, `hang_semaphore`) ported to Rust with `ash`, with GLSL
+  kept in-tree and translated to SPIR-V at runtime via `naga`; device
+  execution lives behind the opt-in `vulkan` feature and watchdog runner.
 - `cargo xtask gpu-stress <case> [--timeout <secs>]`: opt-in GPU robustness
   workloads, outside `dev` and the coverage gate, with a force-exit
   watchdog (exit code 3 = hang detected, 4 = device lost).
